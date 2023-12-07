@@ -4,6 +4,8 @@
 #include "Position.h"
 
 //#define stdPosition
+#define SQUARE(x) (x*x)
+#define mm(x) (x/1000);
 
 #define STEP 1
 #define SERVO1_PIN 9	//BASE
@@ -11,6 +13,7 @@
 #define SERVO3_PIN 11	//ELBOW
 #define SERVO4_PIN 12	//GRABBER
 
+int c_step = 1; // Configurable step
 
 typedef struct{
 	int state, new_state;
@@ -54,7 +57,8 @@ int s3dm(float deg);
 int s4dm(float deg);
 
 bool inverseKinematics(float p[3], float& base, float& shoulder, float& elbow);
-void doCommand(char b, float p[3]);
+void doCommand1(char b, float* p);
+void doCommand2(char b, float* p, int* step);
 
 void setup(){
 	pinMode(LED_BUILTIN, OUTPUT);
@@ -74,9 +78,9 @@ void setup(){
 	#endif
 
 	//p.setxyz(140, 0, 140);
-	point[0]=140;
-	point[1]=0;
-	point[2]=140;
+	point[0]=5;
+	point[1]=5;
+	point[2]=5;
 
 	thB = 90;
 	thS = 90;
@@ -90,7 +94,7 @@ void loop(){
 
 	if(Serial.available()){
 		b = Serial.read();
-      	doCommand(b, point);
+      	doCommand2(b, point, &c_step);
 	}
 
 
@@ -133,7 +137,7 @@ void loop(){
 		Serial.print(point[0]);
 		Serial.print("   y: ");
 		Serial.print(point[1]);
-		Serial.print("   y: ");
+		Serial.print("   z: ");
 		Serial.print(point[2]);
 		Serial.print("   base: ");
 		Serial.print(angBase);
@@ -171,11 +175,27 @@ float pitagoras(float a, float b){
 	return sqrt(pow(a,2)+pow(b,2));
 }
 
-bool inverseKinematics(float p[3], float& base, float& shoulder, float& elbow){
+bool inverseKinematics(float *point, float& base, float& shoulder, float& elbow){
 	//float qa = atan((p[0]-CAL_L_0)/-p[1]);
+	float p[3];
+	p[0] = point[0]/1000;
+	p[1] = point[1]/1000;
+	p[2] = point[2]/1000;
+
 	float qa = atan2((p[0]-CAL_L_0),-p[1]);
 	float qb = asin(CAL_D_5/sqrt(pow(p[0]-CAL_L_0, 2) + pow(p[1],2)));
 	float q1 = qa + qb; // angle of base servo in radians
+
+
+	// TODO arrumar isso- lembrar que os links do professor são diferentes
+	// l1 dele é o nosso l2
+	// l2 dele é o nosso l3
+	// y é para cima
+	// x é para frente
+	// z é de lado a lado
+	j3 = acos((SQUARE(p[0]) + SQUARE(p[1]) - SQUARE(CAL_L_2) - SQUARE(CAL_L_3))/(2*CAL_L_2*CAL_L_3))
+	j2 = atan2(y,x)-atan2(l2-sin(j3), l1 + (l2 * cos(j3)));
+	j1 = atan2 (y, x)
 
 	float P_0W[3] = { //Positon x,y,z of the wrist
 		p[0] + (CAL_L_5*sin(q1)-CAL_L_0),
@@ -210,7 +230,7 @@ bool inverseKinematics(float p[3], float& base, float& shoulder, float& elbow){
 	return true;
 }
 
-void doCommand(char b, float p[3]){
+void doCommand1(char b, float* p){
 	Serial.println(b);
 	/* if (b == '-'){
 			cmd = (cmd-STEP < 500) ? 500 : cmd-STEP;
@@ -302,4 +322,63 @@ void doCommand(char b, float p[3]){
 	if (b == '6'){
 		arm.gotoPoint(0,120,20);
 	} */
+}
+
+void doCommand2(char b, float* p, int* step){
+	if (b == '-'){
+		c_step = (c_step-STEP < 1) ? 1 : c_step-STEP;
+		Serial.print("c_step: ");
+		Serial.println(c_step);
+	}
+	if (b == '+'){
+		c_step = (c_step+STEP > 100) ? 100 : c_step-STEP;
+		Serial.print("c_step: ");
+		Serial.println(c_step);
+	} 
+
+	if (b == 'h'){
+		p[0] = (p[0] - c_step < -50) ? -50 : p[0]-c_step;
+	}
+	if (b == 'y'){
+		p[0] = (p[0] + c_step > 50) ? 50 : p[0]+c_step;
+	}
+
+	if (b == 'j'){
+		p[1] = (p[1] - c_step < -50) ? -50 : p[1]-c_step;
+	}
+	if (b == 'u'){
+		p[1] = (p[1] + c_step > 50) ? 50 : p[1]+c_step;
+	}
+
+	if (b == 'k'){ // Z
+		p[2] = (p[2] - c_step < 0) ? 0 : p[2]-c_step;
+	}
+	if (b == 'i'){
+		p[2] = (p[2] + c_step > 200) ? 200 : p[2]+c_step;
+	}
+
+	if (b == '1'){
+		//pp.setxyz(140, 0, 140);
+		point[0]=180;
+		point[1]=0;
+		point[2]=140;
+	}
+	if (b == '2'){
+		//pp.setxyz(140, -50, 140);
+		point[0]=180;
+		point[1]=-70;
+		point[2]=140;
+	}
+	if (b == '3'){
+		//pp.setxyz(140, 50, 140);
+		point[0]=180;
+		point[1]=70;
+		point[2]=140;
+	}
+	if (b == '4'){
+		//pp.setxyz(140, 0, 140);
+		point[0]=180;
+		point[1]=0;
+		point[2]=170;
+	}
 }
