@@ -4,6 +4,9 @@
 #include "Position.h"
 
 //#define stdPosition
+#define CTRL_BY_ANGLE
+//#define CTRL_BY_CARSTESIAN
+
 #define SQUARE(x) (x*x)
 #define mm(x) (x/1000);
 
@@ -56,7 +59,7 @@ int s2dm(float deg);
 int s3dm(float deg);
 int s4dm(float deg);
 
-bool inverseKinematics(float p[3], float& base, float& shoulder, float& elbow);
+bool inverseKinematics(float *point, float& base, float& shoulder, float& elbow);
 void doCommand1(char b, float* p);
 void doCommand2(char b, float* p, int* step);
 
@@ -94,7 +97,16 @@ void loop(){
 
 	if(Serial.available()){
 		b = Serial.read();
+		#ifdef CTRL_BY_CARSTESIAN
+		#ifndef CTRL_BY_ANGLE
       	doCommand2(b, point, &c_step);
+		#endif 
+		#endif
+		#ifndef CTRL_BY_CARSTESIAN
+		#ifdef CTRL_BY_ANGLE
+		doCommand1(b, point);
+		#endif
+		#endif
 	}
 
 
@@ -127,18 +139,36 @@ void loop(){
 		//	Set Actions
 
 		//	Set Outputs
+		#ifndef CTRL_BY_CARSTESIAN
+		#ifdef CTRL_BY_ANGLE
+		angBase = thB;
+		angShoulder = thS;
+		angElbow = thE;
+		Base.writeMicroseconds(s1dm(thB));
+		Shoulder.writeMicroseconds(s1dm(thS));
+		Elbow.writeMicroseconds(s1dm(thE));
+		#endif
+		#endif
+		#ifdef CTRL_BY_CARSTESIAN
+		#ifndef CTRL_BY_ANGLE
 		inverseKinematics(point, angBase, angShoulder, angElbow);
 		Base.writeMicroseconds(s1dm(angBase));
 		Shoulder.writeMicroseconds(s1dm(angShoulder));
 		Elbow.writeMicroseconds(s1dm(angElbow));
+		#endif
+		#endif
 		
 		//	Serial Log
+		#ifdef CTRL_BY_CARSTESIAN
+		#ifndef CTRL_BY_ANGLE
 		Serial.print("   x: ");
 		Serial.print(point[0]);
 		Serial.print("   y: ");
 		Serial.print(point[1]);
 		Serial.print("   z: ");
 		Serial.print(point[2]);
+		#endif
+		#endif
 		Serial.print("   base: ");
 		Serial.print(angBase);
 		Serial.print("   shoulder: ");
@@ -177,25 +207,17 @@ float pitagoras(float a, float b){
 
 bool inverseKinematics(float *point, float& base, float& shoulder, float& elbow){
 	//float qa = atan((p[0]-CAL_L_0)/-p[1]);
-	float p[3];
+	 float p[3];
 	p[0] = point[0]/1000;
 	p[1] = point[1]/1000;
 	p[2] = point[2]/1000;
 
-	float qa = atan2((p[0]-CAL_L_0),-p[1]);
+	/*float qa = atan2((p[0]-CAL_L_0),-p[1]);
 	float qb = asin(CAL_D_5/sqrt(pow(p[0]-CAL_L_0, 2) + pow(p[1],2)));
 	float q1 = qa + qb; // angle of base servo in radians
 
 
-	// TODO arrumar isso- lembrar que os links do professor são diferentes
-	// l1 dele é o nosso l2
-	// l2 dele é o nosso l3
-	// y é para cima
-	// x é para frente
-	// z é de lado a lado
-	j3 = acos((SQUARE(p[0]) + SQUARE(p[1]) - SQUARE(CAL_L_2) - SQUARE(CAL_L_3))/(2*CAL_L_2*CAL_L_3))
-	j2 = atan2(y,x)-atan2(l2-sin(j3), l1 + (l2 * cos(j3)));
-	j1 = atan2 (y, x)
+	
 
 	float P_0W[3] = { //Positon x,y,z of the wrist
 		p[0] + (CAL_L_5*sin(q1)-CAL_L_0),
@@ -221,7 +243,20 @@ bool inverseKinematics(float *point, float& base, float& shoulder, float& elbow)
 
 	float phi = acos((pow(e,2)+pow(CAL_L_3I,2)-pow(CAL_L_4,2))/(2*e*CAL_L_3I));
 	float psi = asin(CAL_L_3O*sin(q_3o/e));
-	float q3 = psi + phi + (PI/2) - q2; // Angle of elbow servo in radians
+	float q3 = psi + phi + (PI/2) - q2; */ // Angle of elbow servo in radians
+
+	// TODO arrumar isso- lembrar que os links do professor são diferentes
+	// l1 dele é o nosso l2
+	// l2 dele é o nosso l3
+	// y é para cima
+	// x é para frente
+	// z é de lado a lado
+	//j3 = acos((SQUARE(p[0]) + SQUARE(p[1]) - SQUARE(CAL_L_2) - SQUARE(CAL_L_3))/(2*CAL_L_2*CAL_L_3))
+	float q3 = acos((SQUARE(p[1]) + SQUARE(p[2]) - SQUARE(CAL_L_2) - SQUARE(CAL_L_3))/(2*CAL_L_2*CAL_L_3));
+	//j2 = atan2(y,x)-atan2(l2-sin(j3), l1 + (l2 * cos(j3)));
+	float q2 = atan2(p[2], p[1])-atan2(CAL_L_3-sin(q3), CAL_L_2 + (CAL_L_3 * cos(q3)));
+	//j1 = atan2 (y, x)
+	float q1 = atan2 (p[1], p[0]);
 
 	base = q1*180/PI;
 	shoulder = q2*180/PI;
