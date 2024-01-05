@@ -3,9 +3,10 @@
 #include "ARMcalib.h"
 #include "Position.h"
 
-//#define stdPosition
-#define CTRL_BY_ANGLE
-//#define CTRL_BY_CARSTESIAN
+#define stdPosition
+//#define CTRL_BY_MICROS
+//#define CTRL_BY_ANGLE
+#define CTRL_BY_CARSTESIAN
 
 #define SQUARE(x) (x*x)
 #define mm(x) (x/1000);
@@ -62,6 +63,7 @@ int s4dm(float deg);
 bool inverseKinematics(float *point, float& base, float& shoulder, float& elbow);
 void doCommand1(char b, float* p);
 void doCommand2(char b, float* p, int* step);
+void doCommand3(char b, float* p, int* step);
 
 void setup(){
 	pinMode(LED_BUILTIN, OUTPUT);
@@ -69,11 +71,14 @@ void setup(){
 
 	interval = 40;
 	Base.attach(SERVO1_PIN, 500, 2500);
-	Shoulder.attach(SERVO2_PIN, 966, 2200);
-	Elbow.attach(SERVO3_PIN, 1055, 1944);
+	Shoulder.attach(SERVO2_PIN, 966, 2500);
+	Elbow.attach(SERVO3_PIN, 500, 2500);
 	Grabber.attach(SERVO4_PIN, 722, 1955);
 
 	#ifdef stdPosition
+	microsBase = 1500;
+	microsShoulder = 1500;
+	microsElbow = 1500;
 	Base.writeMicroseconds(1500);
 	Shoulder.writeMicroseconds(1500);
 	Elbow.writeMicroseconds(1500);
@@ -98,14 +103,13 @@ void loop(){
 	if(Serial.available()){
 		b = Serial.read();
 		#ifdef CTRL_BY_CARSTESIAN
-		#ifndef CTRL_BY_ANGLE
       	doCommand2(b, point, &c_step);
-		#endif 
 		#endif
-		#ifndef CTRL_BY_CARSTESIAN
 		#ifdef CTRL_BY_ANGLE
 		doCommand1(b, point);
 		#endif
+		#ifdef CTRL_BY_MICROS
+		doCommand3(b, point, &c_step);
 		#endif
 	}
 
@@ -139,6 +143,12 @@ void loop(){
 		//	Set Actions
 
 		//	Set Outputs
+		#ifdef CTRL_BY_MICROS
+		Base.writeMicroseconds(microsBase);
+		Shoulder.writeMicroseconds(microsShoulder);
+		Elbow.writeMicroseconds(microsElbow);
+		#endif
+
 		#ifndef CTRL_BY_CARSTESIAN
 		#ifdef CTRL_BY_ANGLE
 		angBase = thB;
@@ -150,31 +160,44 @@ void loop(){
 		#endif
 		#endif
 		#ifdef CTRL_BY_CARSTESIAN
-		#ifndef CTRL_BY_ANGLE
 		inverseKinematics(point, angBase, angShoulder, angElbow);
 		Base.writeMicroseconds(s1dm(angBase));
 		Shoulder.writeMicroseconds(s1dm(angShoulder));
 		Elbow.writeMicroseconds(s1dm(angElbow));
 		#endif
-		#endif
 		
 		//	Serial Log
+		Serial.print("Step: ");
+		Serial.print(c_step);
 		#ifdef CTRL_BY_CARSTESIAN
-		#ifndef CTRL_BY_ANGLE
 		Serial.print("   x: ");
 		Serial.print(point[0]);
 		Serial.print("   y: ");
 		Serial.print(point[1]);
 		Serial.print("   z: ");
 		Serial.print(point[2]);
-		#endif
-		#endif
+
 		Serial.print("   base: ");
 		Serial.print(angBase);
 		Serial.print("   shoulder: ");
 		Serial.print(angShoulder);
 		Serial.print("   elbow: ");
 		Serial.print(angElbow);
+		#endif
+
+		Serial.print("   base: ");
+		Serial.print(angBase);
+		Serial.print("   shoulder: ");
+		Serial.print(angShoulder);
+		Serial.print("   elbow: ");
+		Serial.print(angElbow);
+
+		Serial.print("   micros B: ");
+		Serial.print(microsBase);
+		Serial.print("   micros S: ");
+		Serial.print(microsShoulder);
+		Serial.print("   micros E: ");
+		Serial.print(microsElbow);
 
 		Serial.println();
 	}
@@ -207,56 +230,22 @@ float pitagoras(float a, float b){
 
 bool inverseKinematics(float *point, float& base, float& shoulder, float& elbow){
 	//float qa = atan((p[0]-CAL_L_0)/-p[1]);
-	 float p[3];
+	float l = CAL_L_2;
+	float p[3];
 	p[0] = point[0]/1000;
 	p[1] = point[1]/1000;
 	p[2] = point[2]/1000;
+	float r = sqrt(SQUARE(p[0]) + SQUARE(p[1]));
+	float q1 = atan2(p[0],p[1]);
+	float z = p[2];
+	float hp = z - CAL_H_1;
+	float alpha = atan2(r, hp);
+	float S = r/cos(alpha);
+	float q3_ = acos(1-(SQUARE(S)/(2*SQUARE(l))));
+	float Beta = (PI-q3_)/2;
+	float q2 = PI - Beta - alpha;
+	float q3 = PI/2 - q3_;
 
-	/*float qa = atan2((p[0]-CAL_L_0),-p[1]);
-	float qb = asin(CAL_D_5/sqrt(pow(p[0]-CAL_L_0, 2) + pow(p[1],2)));
-	float q1 = qa + qb; // angle of base servo in radians
-
-
-	
-
-	float P_0W[3] = { //Positon x,y,z of the wrist
-		p[0] + (CAL_L_5*sin(q1)-CAL_L_0),
-		p[1] + (-CAL_L_5*cos(q1)),
-		p[2] + (0)
-	};
-
-	float r = pitagoras(p[0],p[1])-CAL_L_1;
-	float ze = p[2] - CAL_H_1;
-	//float alpha = atan(ze/r);
-	float alpha = atan2(ze,r);
-	float s = pitagoras(r, ze);
-
-	float gama = acos((pow(CAL_L_2,2)+pow(CAL_L_3,2)-pow(s,2))/(2*CAL_L_2*CAL_L_3));
-	float beta = acos((pow(s,2)+pow(CAL_L_2,2)-pow(CAL_L_3,2))/(2*s*CAL_L_3));
-
-	float q_3o = PI - gama;
-	float q2 = PI - alpha - beta; // Angle of shoulder servo in radians
-
-	float e = sqrt(
-		pow(CAL_L_3O,2)+pow(CAL_L_2,2)-(2*CAL_L_3O*cos(q_3o))
-	);
-
-	float phi = acos((pow(e,2)+pow(CAL_L_3I,2)-pow(CAL_L_4,2))/(2*e*CAL_L_3I));
-	float psi = asin(CAL_L_3O*sin(q_3o/e));
-	float q3 = psi + phi + (PI/2) - q2; */ // Angle of elbow servo in radians
-
-	// TODO arrumar isso- lembrar que os links do professor são diferentes
-	// l1 dele é o nosso l2
-	// l2 dele é o nosso l3
-	// y é para cima
-	// x é para frente
-	// z é de lado a lado
-	//j3 = acos((SQUARE(p[0]) + SQUARE(p[1]) - SQUARE(CAL_L_2) - SQUARE(CAL_L_3))/(2*CAL_L_2*CAL_L_3))
-	float q3 = acos((SQUARE(p[1]) + SQUARE(p[2]) - SQUARE(CAL_L_2) - SQUARE(CAL_L_3))/(2*CAL_L_2*CAL_L_3));
-	//j2 = atan2(y,x)-atan2(l2-sin(j3), l1 + (l2 * cos(j3)));
-	float q2 = atan2(p[2], p[1])-atan2(CAL_L_3-sin(q3), CAL_L_2 + (CAL_L_3 * cos(q3)));
-	//j1 = atan2 (y, x)
-	float q1 = atan2 (p[1], p[0]);
 
 	base = q1*180/PI;
 	shoulder = q2*180/PI;
@@ -366,7 +355,7 @@ void doCommand2(char b, float* p, int* step){
 		Serial.println(c_step);
 	}
 	if (b == '+'){
-		c_step = (c_step+STEP > 100) ? 100 : c_step-STEP;
+		c_step = (c_step+STEP > 100) ? 100 : c_step+STEP;
 		Serial.print("c_step: ");
 		Serial.println(c_step);
 	} 
@@ -415,5 +404,39 @@ void doCommand2(char b, float* p, int* step){
 		point[0]=180;
 		point[1]=0;
 		point[2]=170;
+	}
+}
+
+void doCommand3(char b, float* p, int* step){
+	if (b == '-'){
+		c_step = (c_step-STEP < 1) ? 1 : c_step-STEP;
+		Serial.print("c_step: ");
+		Serial.println(c_step);
+	}
+	if (b == '+'){
+		c_step = (c_step+STEP > 100) ? 100 : c_step+STEP;
+		Serial.print("c_step: ");
+		Serial.println(c_step);
+	} 
+
+	if (b == 'h'){
+		microsBase = (microsBase - c_step < 500) ? 500 : microsBase-c_step;
+	}
+	if (b == 'y'){
+		microsBase = (microsBase + c_step > 2500) ? 2500 : microsBase+c_step;
+	}
+
+	if (b == 'j'){
+		microsShoulder = (microsShoulder - c_step < 500) ? 500 : microsShoulder-c_step;
+	}
+	if (b == 'u'){
+		microsShoulder = (microsShoulder + c_step > 2500) ? 2500 : microsShoulder+c_step;
+	}
+
+	if (b == 'k'){ // Z
+		microsElbow = (microsElbow - c_step < 500) ? 500 : microsElbow-c_step;
+	}
+	if (b == 'i'){
+		microsElbow = (microsElbow + c_step > 2500) ? 2500 : microsElbow+c_step;
 	}
 }
