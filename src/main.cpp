@@ -9,7 +9,7 @@
 #define CTRL_BY_CARSTESIAN
 
 #define SQUARE(x) (x*x)
-#define mm(x) (x/1000);
+#define mm(x) (x/1000)
 
 #define STEP 1
 #define SERVO1_PIN 9	//BASE
@@ -44,21 +44,22 @@ Servo Shoulder;
 Servo Elbow;
 Servo Grabber;
 
+int microsBase;		//used for control by microseconds
+int microsShoulder;	//used for control by microseconds
+int microsElbow;	//used for control by microseconds
 
-float angBase;
-float angShoulder;
-float angElbow;
-int microsBase;
-int microsShoulder;
-int microsElbow;
-int thB, thS, thE;
+float angBase;		//used for control by angle
+float angShoulder;	//used for control by angle
+float angElbow;		//used for control by angle
+int thB, thS, thE;	//used for control by angle
+
 Position p(0,0,0);
 float point[3];
 
-int s1dm(float deg);
-int s2dm(float deg);
-int s3dm(float deg);
-int s4dm(float deg);
+int s1dm(float rad);
+int s2dm(float rad);
+int s3dm(float rad);
+int s4dm(float rad);
 
 bool inverseKinematics(float *point, float& base, float& shoulder, float& elbow);
 void doCommand1(char b, float* p);
@@ -148,8 +149,6 @@ void loop(){
 		Shoulder.writeMicroseconds(microsShoulder);
 		Elbow.writeMicroseconds(microsElbow);
 		#endif
-
-		#ifndef CTRL_BY_CARSTESIAN
 		#ifdef CTRL_BY_ANGLE
 		angBase = thB;
 		angShoulder = thS;
@@ -157,7 +156,6 @@ void loop(){
 		Base.writeMicroseconds(s1dm(thB));
 		Shoulder.writeMicroseconds(s1dm(thS));
 		Elbow.writeMicroseconds(s1dm(thE));
-		#endif
 		#endif
 		#ifdef CTRL_BY_CARSTESIAN
 		inverseKinematics(point, angBase, angShoulder, angElbow);
@@ -203,21 +201,50 @@ void loop(){
 	}
 }
 
+/**
+ * @brief q1 servo conversion
+ * 
+ * @param rad Angle in Radians
+ * @return int returns signal to servo 
+ */
+int s1dm(float rad){//q1 servo conversion
+	//y = -13.78x2 + 679.91x + 500
+	int ret = (int)((-13.78*SQUARE(rad) + 679.91*rad + 500)+.5);
+	ret = (ret<min1)?min1:(ret>max1?max1:ret);
 
-int s1dm(float deg){
-	return min1 + ((max1-min1)*deg/180);
+	return ret;
 }
 
-int s2dm(float deg){
-	return min2 + ((max2-min2)*deg/180);
+/**
+ * @brief q2 servo conversion
+ * 
+ * @param rad Angle in Radians
+ * @return int returns signal to servo microseconds
+ */
+int s2dm(float rad){//q2 servo conversion
+	//y = -3.7518x2 + 724.38x + 313.4
+	int ret = (int)((-3.7518*SQUARE(rad) + 724.38*rad + 313.4)+.5);
+	ret = (ret<min2)?min2:(ret>max2?max2:ret);
+
+	return ret;
 }
 
-int s3dm(float deg){
-	return min3 + ((max3-min3)*deg/180);
+/**
+ * @brief q3 servo conversion
+ * 
+ * @param rad Angle in Radians
+ * @return int returns signal to servo 
+ */
+int s3dm(float rad){//q3 servo conversion
+	//y = -17.586x2 - 602.83x + 1834.7
+	int ret = (int)((-17.586*SQUARE(rad) - 602.83*rad + 1834.7)+.5);
+	ret = (ret<min3)?min3:(ret>max3?max3:ret);
+	
+	return ret;
 }
 
-int s4dm(float deg){
-	return min4 + ((max4-min4)*deg/180);
+int s4dm(float rad){
+	return min4 + ((max4-min4)*rad/180);
 }
 
 float map(float input, int min_in, int max_in, int min_out, int max_out){
@@ -232,9 +259,11 @@ bool inverseKinematics(float *point, float& base, float& shoulder, float& elbow)
 	//float qa = atan((p[0]-CAL_L_0)/-p[1]);
 	float l = CAL_L_2;
 	float p[3];
+
 	p[0] = point[0]/1000;
 	p[1] = point[1]/1000;
 	p[2] = point[2]/1000;
+
 	float r = sqrt(SQUARE(p[0]) + SQUARE(p[1]));
 	float q1 = atan2(p[0],p[1]);
 	float z = p[2];
@@ -247,13 +276,23 @@ bool inverseKinematics(float *point, float& base, float& shoulder, float& elbow)
 	float q3 = PI/2 - q3_;
 
 
-	base = q1*180/PI;
-	shoulder = q2*180/PI;
-	elbow = q3*180/PI;
+	base = q1;
+	shoulder = q2;
+	elbow = q3;
 
 	return true;
 }
 
+/**
+ * Executes a command based on the given character input.
+ *
+ * @param b the character input representing the command
+ * @param p a pointer to a float value
+ *
+ * @return void
+ *
+ * @throws None
+ */
 void doCommand1(char b, float* p){
 	Serial.println(b);
 	/* if (b == '-'){

@@ -1,12 +1,12 @@
 //Base servo:
 #define min1 500
-#define max1 2100
+#define max1 2500
 //Shoulder Servo:
-#define min2 500
-#define max2 2000
+#define min2 1442
+#define max2 2307
 //Elbow Servo:
-#define min3 500
-#define max3 1900
+#define min3 963
+#define max3 1833
 //Grabber Servo:
 #define min4 500
 #define max4 1880
