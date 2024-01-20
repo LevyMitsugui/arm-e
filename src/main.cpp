@@ -9,6 +9,7 @@
 #define CTRL_BY_CARSTESIAN
 
 #define SQUARE(x) (x*x)
+#define CUBE(x) (x*x*x)
 #define mm(x) (x/1000)
 
 #define STEP 1
@@ -71,9 +72,9 @@ void setup(){
 	Serial.begin(115200);
 
 	interval = 40;
-	Base.attach(SERVO1_PIN, 500, 2500);
-	Shoulder.attach(SERVO2_PIN, 966, 2500);
-	Elbow.attach(SERVO3_PIN, 500, 2500);
+	Base.attach(SERVO1_PIN, min1, max1);
+	Shoulder.attach(SERVO2_PIN, min2, max2);
+	Elbow.attach(SERVO3_PIN, min3, max3);
 	Grabber.attach(SERVO4_PIN, 722, 1955);
 
 	#ifdef stdPosition
@@ -87,9 +88,9 @@ void setup(){
 	#endif
 
 	//p.setxyz(140, 0, 140);
-	point[0]=5;
-	point[1]=5;
-	point[2]=5;
+	point[0]=85;
+	point[1]=0;
+	point[2]=70;
 
 	thB = 90;
 	thS = 90;
@@ -153,13 +154,18 @@ void loop(){
 		angBase = thB;
 		angShoulder = thS;
 		angElbow = thE;
-		Base.writeMicroseconds(s1dm(thB));
-		Shoulder.writeMicroseconds(s1dm(thS));
-		Elbow.writeMicroseconds(s1dm(thE));
+		Base.writeMicroseconds(s1dm(thB*PI/180));
+		Shoulder.writeMicroseconds(s1dm(thS*PI/180));
+		Elbow.writeMicroseconds(s1dm(thE*PI/180));
 		#endif
 		#ifdef CTRL_BY_CARSTESIAN
 		inverseKinematics(point, angBase, angShoulder, angElbow);
-		Base.writeMicroseconds(s1dm(angBase));
+		
+		microsBase = s1dm(angBase);
+		microsShoulder = s2dm(angShoulder);
+		microsElbow = s3dm(angElbow);
+		
+		Base.writeMicroseconds(microsBase);
 		Shoulder.writeMicroseconds(s1dm(angShoulder));
 		Elbow.writeMicroseconds(s1dm(angElbow));
 		#endif
@@ -176,11 +182,11 @@ void loop(){
 		Serial.print(point[2]);
 
 		Serial.print("   base: ");
-		Serial.print(angBase);
+		Serial.print(angBase*180/PI);
 		Serial.print("   shoulder: ");
-		Serial.print(angShoulder);
+		Serial.print(angShoulder*180/PI);
 		Serial.print("   elbow: ");
-		Serial.print(angElbow);
+		Serial.print(angElbow*180/PI);
 		#endif
 
 		Serial.print("   base: ");
@@ -237,7 +243,9 @@ int s2dm(float rad){//q2 servo conversion
  */
 int s3dm(float rad){//q3 servo conversion
 	//y = -17.586x2 - 602.83x + 1834.7
-	int ret = (int)((-17.586*SQUARE(rad) - 602.83*rad + 1834.7)+.5);
+	//int ret = (int)((-17.586*SQUARE(rad) - 602.83*rad + 1834.7)+.5);
+	//y = 58.778x3 - 140.69x2 - 541.24x + 1831.7
+	int ret = (int)((58.778*CUBE(rad) - 140.69*SQUARE(rad) - 541.24*rad - 541.24 + 1831.7)+.5);
 	ret = (ret<min3)?min3:(ret>max3?max3:ret);
 	
 	return ret;
@@ -258,27 +266,32 @@ float pitagoras(float a, float b){
 bool inverseKinematics(float *point, float& base, float& shoulder, float& elbow){
 	//float qa = atan((p[0]-CAL_L_0)/-p[1]);
 	float l = CAL_L_2;
-	float p[3];
+	float x, y, z;
 
-	p[0] = point[0]/1000;
-	p[1] = point[1]/1000;
-	p[2] = point[2]/1000;
+	x = point[0]/1000;
+	y = point[1]/1000;
+	z = point[2]/1000;
 
-	float r = sqrt(SQUARE(p[0]) + SQUARE(p[1]));
-	float q1 = atan2(p[0],p[1]);
-	float z = p[2];
+	float r = sqrt(SQUARE(x) + SQUARE(y));
+	Serial.print("r: ");
+	Serial.printf("%.5f", r);
+	Serial.print("     ");
+	float q1 = atan2(y,x)+PI/2;
 	float hp = z - CAL_H_1;
-	float alpha = atan2(r, hp);
-	float S = r/cos(alpha);
-	float q3_ = acos(1-(SQUARE(S)/(2*SQUARE(l))));
-	float Beta = (PI-q3_)/2;
-	float q2 = PI - Beta - alpha;
-	float q3 = PI/2 - q3_;
+	Serial.print("hp: ");
+	Serial.print(hp);
+	Serial.print(" ");
+	float S = sqrt(SQUARE(r) + SQUARE(hp));
+	float q3_ = acos(2-(SQUARE(hp)+SQUARE(r))/SQUARE(l));
 
+	float alpha = atan2(hp,r);
+	float beta = (PI-q3_)/2;
+	float q2 = PI - alpha - beta;
+	float q3 = q2-q3_;
 
-	base = q1;
-	shoulder = q2;
-	elbow = q3;
+	base = q1;		//in radians
+	shoulder = q2;	//in radians
+	elbow = q3;		//in radians
 
 	return true;
 }
@@ -400,10 +413,10 @@ void doCommand2(char b, float* p, int* step){
 	} 
 
 	if (b == 'h'){
-		p[0] = (p[0] - c_step < -50) ? -50 : p[0]-c_step;
+		p[0] = (p[0] - c_step < 10) ? 10 : p[0]-c_step;
 	}
 	if (b == 'y'){
-		p[0] = (p[0] + c_step > 50) ? 50 : p[0]+c_step;
+		p[0] = (p[0] + c_step > 150) ? 150 : p[0]+c_step;
 	}
 
 	if (b == 'j'){
@@ -477,5 +490,16 @@ void doCommand3(char b, float* p, int* step){
 	}
 	if (b == 'i'){
 		microsElbow = (microsElbow + c_step > 2500) ? 2500 : microsElbow+c_step;
+	}
+
+	if (b == '1'){
+		microsElbow = min3;
+		microsShoulder = (min2+max2)/2;
+		microsBase = (min1+max1)/2;
+	}
+	if (b == '2'){
+		microsElbow = max3;
+		microsShoulder = (min2+max2)/2;
+		microsBase = (min1+max1)/2;
 	}
 }

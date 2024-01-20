@@ -23,4 +23,4 @@
 #define CAL_L_3O (float)35 / 1000
 
 #define CAL_D_5 (float)8 / 1000
-#define CAL_H_1 (float)55 / 1000
+#define CAL_H_1 (float)60 / 1000
