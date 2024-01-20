@@ -48,11 +48,14 @@ Servo Grabber;
 int microsBase;		//used for control by microseconds
 int microsShoulder;	//used for control by microseconds
 int microsElbow;	//used for control by microseconds
+int microsGrabber;  //used for control by microseconds
 
 float angBase;		//used for control by angle
 float angShoulder;	//used for control by angle
 float angElbow;		//used for control by angle
 int thB, thS, thE;	//used for control by angle
+
+int openClose = 0;
 
 Position p(0,0,0);
 float point[3];
@@ -60,11 +63,11 @@ float point[3];
 int s1dm(float rad);
 int s2dm(float rad);
 int s3dm(float rad);
-int s4dm(float rad);
+int s4dm(int openClose);
 
 bool inverseKinematics(float *point, float& base, float& shoulder, float& elbow);
 void doCommand1(char b, float* p);
-void doCommand2(char b, float* p, int* step);
+void doCommand2(char b, float* p, int* step, int* openClose);
 void doCommand3(char b, float* p, int* step);
 
 void setup(){
@@ -105,7 +108,7 @@ void loop(){
 	if(Serial.available()){
 		b = Serial.read();
 		#ifdef CTRL_BY_CARSTESIAN
-      	doCommand2(b, point, &c_step);
+      	doCommand2(b, point, &c_step, &openClose);
 		#endif
 		#ifdef CTRL_BY_ANGLE
 		doCommand1(b, point);
@@ -149,6 +152,7 @@ void loop(){
 		Base.writeMicroseconds(microsBase);
 		Shoulder.writeMicroseconds(microsShoulder);
 		Elbow.writeMicroseconds(microsElbow);
+		Grabber.writeMicroseconds(microsGrabber);
 		#endif
 		#ifdef CTRL_BY_ANGLE
 		angBase = thB;
@@ -164,10 +168,12 @@ void loop(){
 		microsBase = s1dm(angBase);
 		microsShoulder = s2dm(angShoulder);
 		microsElbow = s3dm(angElbow);
-		
+		microsGrabber = s4dm(openClose);
+
 		Base.writeMicroseconds(microsBase);
-		Shoulder.writeMicroseconds(s1dm(angShoulder));
-		Elbow.writeMicroseconds(s1dm(angElbow));
+		Shoulder.writeMicroseconds(microsShoulder);
+		Elbow.writeMicroseconds(microsElbow);
+		Grabber.writeMicroseconds(microsGrabber);
 		#endif
 		
 		//	Serial Log
@@ -202,6 +208,8 @@ void loop(){
 		Serial.print(microsShoulder);
 		Serial.print("   micros E: ");
 		Serial.print(microsElbow);
+		Serial.print("   micros G: ");
+		Serial.print(microsGrabber);
 
 		Serial.println();
 	}
@@ -251,6 +259,10 @@ int s3dm(float rad){//q3 servo conversion
 	return ret;
 }
 
+int s4dm(int openClose){
+	return min4 + ((max4-min4)*openClose/100);
+}
+
 int s4dm(float rad){
 	return min4 + ((max4-min4)*rad/180);
 }
@@ -268,9 +280,9 @@ bool inverseKinematics(float *point, float& base, float& shoulder, float& elbow)
 	float l = CAL_L_2;
 	float x, y, z;
 
-	x = point[0]/1000;
-	y = point[1]/1000;
-	z = point[2]/1000;
+	x = point[0];
+	y = point[1];
+	z = point[2];
 
 	float r = sqrt(SQUARE(x) + SQUARE(y));
 	Serial.print("r: ");
@@ -400,7 +412,7 @@ void doCommand1(char b, float* p){
 	} */
 }
 
-void doCommand2(char b, float* p, int* step){
+void doCommand2(char b, float* p, int* step, int* openClose){// by cartesian
 	if (b == '-'){
 		c_step = (c_step-STEP < 1) ? 1 : c_step-STEP;
 		Serial.print("c_step: ");
@@ -413,49 +425,57 @@ void doCommand2(char b, float* p, int* step){
 	} 
 
 	if (b == 'h'){
-		p[0] = (p[0] - c_step < 10) ? 10 : p[0]-c_step;
+		p[0] = (p[0] - c_step < -60) ? 60 : p[0]-c_step;
 	}
 	if (b == 'y'){
 		p[0] = (p[0] + c_step > 150) ? 150 : p[0]+c_step;
 	}
 
 	if (b == 'j'){
-		p[1] = (p[1] - c_step < -50) ? -50 : p[1]-c_step;
+		p[1] = (p[1] - c_step < -160) ? -160 : p[1]-c_step;
 	}
 	if (b == 'u'){
-		p[1] = (p[1] + c_step > 50) ? 50 : p[1]+c_step;
+		p[1] = (p[1] + c_step > 160) ? 160 : p[1]+c_step;
 	}
 
 	if (b == 'k'){ // Z
-		p[2] = (p[2] - c_step < 0) ? 0 : p[2]-c_step;
+		p[2] = (p[2] - c_step < -50) ? -50 : p[2]-c_step;
 	}
 	if (b == 'i'){
 		p[2] = (p[2] + c_step > 200) ? 200 : p[2]+c_step;
 	}
 
+	if(b == 'o'){
+		*openClose = (*openClose + c_step > 100) ? 100 : *openClose+c_step;
+	}
+
+	if(b == 'l'){
+		*openClose = (*openClose - c_step < 0) ? 0 : *openClose-c_step;
+	}
+
 	if (b == '1'){
 		//pp.setxyz(140, 0, 140);
-		point[0]=180;
-		point[1]=0;
-		point[2]=140;
+		point[0]=85;
+		point[1]=-40;
+		point[2]=70;
 	}
 	if (b == '2'){
 		//pp.setxyz(140, -50, 140);
-		point[0]=180;
-		point[1]=-70;
-		point[2]=140;
+		point[0]=100;
+		point[1]=-40;
+		point[2]=70;
 	}
 	if (b == '3'){
 		//pp.setxyz(140, 50, 140);
-		point[0]=180;
-		point[1]=70;
-		point[2]=140;
+		point[0]=100;
+		point[1]=40;
+		point[2]=70;
 	}
 	if (b == '4'){
 		//pp.setxyz(140, 0, 140);
-		point[0]=180;
-		point[1]=0;
-		point[2]=170;
+		point[0]=85;
+		point[1]=40;
+		point[2]=70;
 	}
 }
 
@@ -490,6 +510,13 @@ void doCommand3(char b, float* p, int* step){
 	}
 	if (b == 'i'){
 		microsElbow = (microsElbow + c_step > 2500) ? 2500 : microsElbow+c_step;
+	}
+
+	if (b == 'l'){
+		microsGrabber = (microsGrabber - c_step < 500) ? 500 : microsGrabber-c_step;
+	}
+	if (b == 'o'){
+		microsGrabber = (microsGrabber + c_step > 2500) ? 2500 : microsGrabber+c_step;
 	}
 
 	if (b == '1'){
