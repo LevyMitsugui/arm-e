@@ -3,7 +3,7 @@
 #include "ARMcalib.h"
 #include "Position.h"
 
-#define stdPosition
+//#define stdPosition
 //#define CTRL_BY_MICROS
 //#define CTRL_BY_ANGLE
 #define CTRL_BY_CARSTESIAN
@@ -56,15 +56,18 @@ float angElbow;		//used for control by angle
 int thB, thS, thE;	//used for control by angle
 
 int openClose = 0;
+float speed = 20;
 
 Position p(0,0,0);
-float point[3];
+float targetPos[3];
+float currPos[3];
 
 int s1dm(float rad);
 int s2dm(float rad);
 int s3dm(float rad);
 int s4dm(int openClose);
 
+float* moveToTarget(float* currP, float* targetP, float speed, int cylclePeriod, float& base, float& shoulder, float& elbow);
 bool inverseKinematics(float *point, float& base, float& shoulder, float& elbow);
 void doCommand1(char b, float* p);
 void doCommand2(char b, float* p, int* step, int* openClose);
@@ -91,9 +94,13 @@ void setup(){
 	#endif
 
 	//p.setxyz(140, 0, 140);
-	point[0]=85;
-	point[1]=0;
-	point[2]=70;
+	targetPos[0]=85;
+	targetPos[1]=0;
+	targetPos[2]=70;
+	inverseKinematics(targetPos, angBase, angShoulder, angElbow);
+	currPos[0]=targetPos[0];
+	currPos[1]=targetPos[1];
+	currPos[2]=targetPos[2];
 
 	thB = 90;
 	thS = 90;
@@ -108,13 +115,13 @@ void loop(){
 	if(Serial.available()){
 		b = Serial.read();
 		#ifdef CTRL_BY_CARSTESIAN
-      	doCommand2(b, point, &c_step, &openClose);
+      	doCommand2(b, targetPos, &c_step, &openClose);
 		#endif
 		#ifdef CTRL_BY_ANGLE
-		doCommand1(b, point);
+		doCommand1(b, targetPos);
 		#endif
 		#ifdef CTRL_BY_MICROS
-		doCommand3(b, point, &c_step);
+		doCommand3(b, targetPos, &c_step);
 		#endif
 	}
 
@@ -163,8 +170,9 @@ void loop(){
 		Elbow.writeMicroseconds(s1dm(thE*PI/180));
 		#endif
 		#ifdef CTRL_BY_CARSTESIAN
-		inverseKinematics(point, angBase, angShoulder, angElbow);
-		
+		//inverseKinematics(targetPos, angBase, angShoulder, angElbow);
+		moveToTarget(currPos, targetPos, speed, interval, angBase, angShoulder, angElbow);		
+
 		microsBase = s1dm(angBase);
 		microsShoulder = s2dm(angShoulder);
 		microsElbow = s3dm(angElbow);
@@ -180,12 +188,21 @@ void loop(){
 		Serial.print("Step: ");
 		Serial.print(c_step);
 		#ifdef CTRL_BY_CARSTESIAN
-		Serial.print("   x: ");
-		Serial.print(point[0]);
-		Serial.print("   y: ");
-		Serial.print(point[1]);
-		Serial.print("   z: ");
-		Serial.print(point[2]);
+		Serial.print("   Speed: ");
+		Serial.print(speed);
+		Serial.print("   currX: ");
+		Serial.print(currPos[0]);
+		Serial.print("   currY: ");
+		Serial.print(currPos[1]);
+		Serial.print("   currZ: ");
+		Serial.print(currPos[2]);
+
+		Serial.print("   targetX: ");
+		Serial.print(targetPos[0]);
+		Serial.print("   targetY: ");
+		Serial.print(targetPos[1]);
+		Serial.print("   targetZ: ");
+		Serial.print(targetPos[2]);
 
 		Serial.print("   base: ");
 		Serial.print(angBase*180/PI);
@@ -194,13 +211,6 @@ void loop(){
 		Serial.print("   elbow: ");
 		Serial.print(angElbow*180/PI);
 		#endif
-
-		Serial.print("   base: ");
-		Serial.print(angBase);
-		Serial.print("   shoulder: ");
-		Serial.print(angShoulder);
-		Serial.print("   elbow: ");
-		Serial.print(angElbow);
 
 		Serial.print("   micros B: ");
 		Serial.print(microsBase);
@@ -250,10 +260,10 @@ int s2dm(float rad){//q2 servo conversion
  * @return int returns signal to servo 
  */
 int s3dm(float rad){//q3 servo conversion
-	//y = -17.586x2 - 602.83x + 1834.7
-	//int ret = (int)((-17.586*SQUARE(rad) - 602.83*rad + 1834.7)+.5);
 	//y = 58.778x3 - 140.69x2 - 541.24x + 1831.7
-	int ret = (int)((58.778*CUBE(rad) - 140.69*SQUARE(rad) - 541.24*rad - 541.24 + 1831.7)+.5);
+	//int ret = (int)((58.778*CUBE(rad) - 140.69*SQUARE(rad) - 541.24*rad + 1831.7)+.5);
+	//y = -150.86x3 + 318.31x2 - 835.73x + 1852.5
+	int ret = (int)((-150.86*CUBE(rad) + 318*SQUARE(rad) - 835.73*rad + 1852.5)+.5);
 	ret = (ret<min3)?min3:(ret>max3?max3:ret);
 	
 	return ret;
@@ -263,18 +273,26 @@ int s4dm(int openClose){
 	return min4 + ((max4-min4)*openClose/100);
 }
 
-int s4dm(float rad){
-	return min4 + ((max4-min4)*rad/180);
-}
-
 float map(float input, int min_in, int max_in, int min_out, int max_out){
 	return max_out + ((max_in - input)/(max_in-min_in))*max_out;
 }
 
-float pitagoras(float a, float b){
-	return sqrt(pow(a,2)+pow(b,2));
+float pitagoras(float a, float b, float c){
+	return sqrt(SQUARE(a)+SQUARE(b)+SQUARE(c));
 }
 
+/**
+ * Calculate the inverse kinematics for a robotic arm.
+ *
+ * @param point array of three float values representing the target point
+ * @param base reference to a float to store the base angle in radians
+ * @param shoulder reference to a float to store the shoulder angle in radians
+ * @param elbow reference to a float to store the elbow angle in radians
+ *
+ * @return true if the inverse kinematics calculation is successful, false otherwise
+ *
+ * @throws None
+ */
 bool inverseKinematics(float *point, float& base, float& shoulder, float& elbow){
 	//float qa = atan((p[0]-CAL_L_0)/-p[1]);
 	float l = CAL_L_2;
@@ -282,23 +300,28 @@ bool inverseKinematics(float *point, float& base, float& shoulder, float& elbow)
 
 	x = point[0];
 	y = point[1];
-	z = point[2];
+	z = point[2]; // max 130
+	if(z < CAL_Z_BOT_CAP){
+		return false;
+	}
 
 	float r = sqrt(SQUARE(x) + SQUARE(y));
-	Serial.print("r: ");
-	Serial.printf("%.5f", r);
-	Serial.print("     ");
+	if(r <CAL_Hub_Diameter) {
+		Serial.println("Point is too close to the hub");
+		r  = CAL_Hub_Diameter;
+	}
 	float q1 = atan2(y,x)+PI/2;
 	float hp = z - CAL_H_1;
-	Serial.print("hp: ");
-	Serial.print(hp);
-	Serial.print(" ");
-	float S = sqrt(SQUARE(r) + SQUARE(hp));
+	float HIP = sqrt(SQUARE(r) + SQUARE(hp));
+	if(HIP > CAL_SUP_CAP){
+		Serial.println("Point is too far from the hub");
+		HIP = CAL_SUP_CAP;
+	}
 	float q3_ = acos(2-(SQUARE(hp)+SQUARE(r))/SQUARE(l));
 
 	float alpha = atan2(hp,r);
 	float beta = (PI-q3_)/2;
-	float q2 = PI - alpha - beta;
+	float q2 = (PI - alpha - beta);
 	float q3 = q2-q3_;
 
 	base = q1;		//in radians
@@ -306,6 +329,29 @@ bool inverseKinematics(float *point, float& base, float& shoulder, float& elbow)
 	elbow = q3;		//in radians
 
 	return true;
+}
+
+float* moveToTarget(float* currP, float* targetP, float speed, int cylclePeriod, float& base, float& shoulder, float& elbow){
+	if(currP[0] < targetP[0]+POS_MARGIN && currP[0] > targetP[0]-POS_MARGIN){
+		if(currP[1] < targetP[1]+POS_MARGIN && currP[1] > targetP[1]-POS_MARGIN){
+			if(currP[2] < targetP[2]+POS_MARGIN && currP[2] > targetP[2]-POS_MARGIN){
+				return currP;
+			}
+		}
+	}
+	float sVec[3] = {targetP[0] - currP[0], targetP[1] - currP[1], targetP[2] - currP[2]};
+	//Serial.printf("SVec: %.6f %.6f %.6f", sVec[0], sVec[1], sVec[2]);
+	float sMod = pitagoras(sVec[0], sVec[1], sVec[2]);
+	//Serial.printf("   SMod: %.6f", sMod);
+	float sUnit[3] = {sVec[0]/sMod, sVec[1]/sMod, sVec[2]/sMod};
+	//Serial.printf("   SUnit: %.6f %.6f %.6f", sUnit[0], sUnit[1], sUnit[2]);
+
+	currP[0] = sUnit[0]*speed*1e-3*cylclePeriod + currP[0];
+	currP[1] = sUnit[1]*speed*1e-3*cylclePeriod + currP[1];
+	currP[2] = sUnit[2]*speed*1e-3*cylclePeriod + currP[2];
+
+	inverseKinematics(currP, base, shoulder, elbow);
+	return currP;
 }
 
 /**
@@ -332,24 +378,6 @@ void doCommand1(char b, float* p){
 	if (b == '+'){
 		cmd = (cmd+STEP > 180) ? 180 : cmd+STEP;
 	}
-	/* if (b == 'u'){
-		x = (x-STEP < -80) ? -80 : x-STEP;
-	} 
-	if (b == 'j'){
-		x = (x+STEP > 80) ? 80 : x+STEP;
-	}
-	if (b == 'i'){
-		y = (y-STEP < 0) ? 0: y-STEP;
-	} 
-	if (b == 'k'){
-		y = (y+STEP > 250) ? 250 : y+STEP;
-	}
-	if (b == 'o'){
-		z = (z-STEP < 0) ? 0: z-STEP;
-	} 
-	if (b == 'l'){
-		z = (z+STEP > 145) ? 145 : z+STEP;
-	} */
 	if (b == 'e'){
 		thB = (thB-STEP < 0) ? 0: thB-STEP;
 	} 
@@ -368,48 +396,6 @@ void doCommand1(char b, float* p){
 	if (b == 'g'){
 		thE = (thE+STEP > 128) ? 128 : thE+STEP;
 	}
-	if (b == '1'){
-		//pp.setxyz(140, 0, 140);
-		point[0]=180;
-		point[1]=0;
-		point[2]=140;
-	}
-	if (b == '2'){
-		//pp.setxyz(140, -50, 140);
-		point[0]=180;
-		point[1]=-70;
-		point[2]=140;
-	}
-	if (b == '3'){
-		//pp.setxyz(140, 50, 140);
-		point[0]=180;
-		point[1]=70;
-		point[2]=140;
-	}
-	if (b == '4'){
-		//pp.setxyz(140, 0, 140);
-		point[0]=180;
-		point[1]=0;
-		point[2]=170;
-	}
-	/* if (b == '1'){
-		arm.gotoPoint(0,100,50);
-	}
-	if (b == '2'){
-		arm.gotoPoint(0,300,50);
-	}
-	if (b == '3'){
-		arm.gotoPoint(-120,100,50);
-	}
-	if (b == '4'){
-		arm.gotoPoint(120,100,50);
-	}
-	if (b == '5'){
-		arm.gotoPoint(0,120,200);
-	}
-	if (b == '6'){
-		arm.gotoPoint(0,120,20);
-	} */
 }
 
 void doCommand2(char b, float* p, int* step, int* openClose){// by cartesian
@@ -424,58 +410,84 @@ void doCommand2(char b, float* p, int* step, int* openClose){// by cartesian
 		Serial.println(c_step);
 	} 
 
-	if (b == 'h'){
-		p[0] = (p[0] - c_step < -60) ? 60 : p[0]-c_step;
+	if (b == 'z'){
+		speed = (speed + c_step*10 > 150)? 150 : speed+c_step;
 	}
-	if (b == 'y'){
+	if (b == 'x'){
+		speed = (speed - c_step*10 < 10)? 10 : speed-c_step;
+	}
+
+	if (b == 'h' || b == 's'){
+		p[0] = (p[0] - c_step < -60) ? -60 : p[0]-c_step;
+	}
+	if (b == 'y' || b == 'w'){
 		p[0] = (p[0] + c_step > 150) ? 150 : p[0]+c_step;
 	}
 
-	if (b == 'j'){
+	if (b == 'j' || b == 'd'){
 		p[1] = (p[1] - c_step < -160) ? -160 : p[1]-c_step;
 	}
-	if (b == 'u'){
+	if (b == 'u' || b == 'a'){
 		p[1] = (p[1] + c_step > 160) ? 160 : p[1]+c_step;
 	}
 
-	if (b == 'k'){ // Z
+	if (b == 'k' || b == 'f'){ // Z
 		p[2] = (p[2] - c_step < -50) ? -50 : p[2]-c_step;
 	}
-	if (b == 'i'){
+	if (b == 'i' || b == 'r'){
 		p[2] = (p[2] + c_step > 200) ? 200 : p[2]+c_step;
 	}
 
-	if(b == 'o'){
+	if(b == 'o' || b == 'q'){
 		*openClose = (*openClose + c_step > 100) ? 100 : *openClose+c_step;
 	}
 
-	if(b == 'l'){
+	if(b == 'l' || b == 'e'){
 		*openClose = (*openClose - c_step < 0) ? 0 : *openClose-c_step;
 	}
 
 	if (b == '1'){
 		//pp.setxyz(140, 0, 140);
-		point[0]=85;
-		point[1]=-40;
-		point[2]=70;
+		p[0]=85;
+		p[1]=-40;
+		p[2]=70;
 	}
 	if (b == '2'){
 		//pp.setxyz(140, -50, 140);
-		point[0]=100;
-		point[1]=-40;
-		point[2]=70;
+		p[0]=125;
+		p[1]=-40;
+		p[2]=70;
 	}
 	if (b == '3'){
 		//pp.setxyz(140, 50, 140);
-		point[0]=100;
-		point[1]=40;
-		point[2]=70;
+		p[0]=125;
+		p[1]=40;
+		p[2]=70;
 	}
 	if (b == '4'){
 		//pp.setxyz(140, 0, 140);
-		point[0]=85;
-		point[1]=40;
-		point[2]=70;
+		p[0]=85;
+		p[1]=40;
+		p[2]=70;
+	}
+
+	if (b == '5'){
+		//pp.setxyz(140, 0, 140);
+		p[0]=90;
+		p[1]=90;
+		p[2]=70;
+	}
+	if (b == '6'){
+		//pp.setxyz(140, 0, 140);
+		p[0]=90;
+		p[1]=0;
+		p[2]=70;
+	}
+	if (b == '7'){
+		//pp.setxyz(140, 0, 140);
+		p[0]=90;
+		p[1]=-90;
+		p[2]=70;
 	}
 }
 
