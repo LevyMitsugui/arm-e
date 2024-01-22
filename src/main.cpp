@@ -1,5 +1,7 @@
 #include <Arduino.h>
 #include <Servo.h>
+#include <Wire.h>
+#include <VL53L0X.h>
 #include "ARMcalib.h"
 #include "Position.h"
 
@@ -7,6 +9,8 @@
 //#define CTRL_BY_MICROS
 //#define CTRL_BY_ANGLE
 #define CTRL_BY_CARSTESIAN
+
+#define TOF
 
 #define SQUARE(x) (x*x)
 #define CUBE(x) (x*x*x)
@@ -17,6 +21,9 @@
 #define SERVO2_PIN 10	//SHOULDER
 #define SERVO3_PIN 11	//ELBOW
 #define SERVO4_PIN 12	//GRABBER
+
+#define TOF_SCL_PIN 17
+#define TOF_SDA_PIN 16
 
 int c_step = 1; // Configurable step
 
@@ -38,7 +45,10 @@ uint16_t cmd_micros;
 // State Machines
 
 // Other Variables
-
+#ifdef TOF
+VL53L0X tof;
+float distance, prev_distance;
+#endif
 
 Servo Base;
 Servo Shoulder;
@@ -74,10 +84,23 @@ void doCommand2(char b, float* p, int* step, int* openClose);
 void doCommand3(char b, float* p, int* step);
 
 void setup(){
-	pinMode(LED_BUILTIN, OUTPUT);
+	interval = 40;
 	Serial.begin(115200);
 
-	interval = 40;
+	#ifdef TOF
+	Wire.setSDA(TOF_SDA_PIN);
+  	Wire.setSCL(TOF_SCL_PIN);
+	Wire.begin();
+	tof.setTimeout(500);
+	while (!tof.init()) {
+    Serial.println(F("Failed to detect and initialize VL53L0X!"));
+    delay(100);
+  	}
+	tof.startReadRangeMillimeters();
+	#endif
+
+	pinMode(LED_BUILTIN, OUTPUT);
+
 	Base.attach(SERVO1_PIN, min1, max1);
 	Shoulder.attach(SERVO2_PIN, min2, max2);
 	Elbow.attach(SERVO3_PIN, min3, max3);
@@ -132,6 +155,13 @@ void loop(){
 		last_cycle = now;
 		
 		//	Read Inputs
+		#ifdef TOF
+		if (tof.readRangeAvailable()) {
+      		prev_distance = distance;
+      		distance = tof.readRangeMillimeters();
+			tof.startReadRangeMillimeters();
+    	}	
+		#endif
 		// 0: 1000
 		// 90: 2000
 		
@@ -187,6 +217,10 @@ void loop(){
 		//	Serial Log
 		Serial.print("Step: ");
 		Serial.print(c_step);
+		#ifdef TOF
+		Serial.print("   distance: ");
+		Serial.print(distance, 3);
+		#endif
 		#ifdef CTRL_BY_CARSTESIAN
 		Serial.print("   Speed: ");
 		Serial.print(speed);
@@ -308,7 +342,7 @@ bool inverseKinematics(float *point, float& base, float& shoulder, float& elbow)
 	float r = sqrt(SQUARE(x) + SQUARE(y));
 	if(r <CAL_Hub_Diameter) {
 		Serial.println("Point is too close to the hub");
-		r  = CAL_Hub_Diameter;
+		r  = CAL_Hub_Diameter/2;
 	}
 	float q1 = atan2(y,x)+PI/2;
 	float hp = z - CAL_H_1;
@@ -345,6 +379,8 @@ float* moveToTarget(float* currP, float* targetP, float speed, int cylclePeriod,
 	//Serial.printf("   SMod: %.6f", sMod);
 	float sUnit[3] = {sVec[0]/sMod, sVec[1]/sMod, sVec[2]/sMod};
 	//Serial.printf("   SUnit: %.6f %.6f %.6f", sUnit[0], sUnit[1], sUnit[2]);
+
+	speed = (speed*powf(sMod*0.1, 1.8) > 150) ? 150 : speed*powf(sMod*0.1, 1.8);
 
 	currP[0] = sUnit[0]*speed*1e-3*cylclePeriod + currP[0];
 	currP[1] = sUnit[1]*speed*1e-3*cylclePeriod + currP[1];
@@ -475,20 +511,29 @@ void doCommand2(char b, float* p, int* step, int* openClose){// by cartesian
 		//pp.setxyz(140, 0, 140);
 		p[0]=90;
 		p[1]=90;
-		p[2]=70;
+		p[2]=74;
 	}
 	if (b == '6'){
 		//pp.setxyz(140, 0, 140);
 		p[0]=90;
 		p[1]=0;
-		p[2]=70;
+		p[2]=74;
 	}
 	if (b == '7'){
 		//pp.setxyz(140, 0, 140);
 		p[0]=90;
 		p[1]=-90;
-		p[2]=70;
+		p[2]=74;
 	}
+
+	#ifdef TOF
+	if (b == 'm'){
+		//pp.setxyz(140, 0, 140);
+		p[0]=distance-R_GRABBER_OFFSET;
+		p[1]=0;
+		p[2]=74;
+	}
+	#endif
 }
 
 void doCommand3(char b, float* p, int* step){

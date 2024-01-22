@@ -33,3 +33,7 @@
 #define CAL_Z_BOT_CAP (float) 20
 
 #define POS_MARGIN (float) 0.5
+#define MAX_SPEED (float) 150
+
+#define TOF_Z_CLEARANCE(float) 77 // z grabbar hight in witch it clears the tof view
+#define R_GRABBER_OFFSET (float) 40
