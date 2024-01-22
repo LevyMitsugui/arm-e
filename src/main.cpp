@@ -2,15 +2,20 @@
 #include <Servo.h>
 #include <Wire.h>
 #include <VL53L0X.h>
+#include <Adafruit_TCS34725.h>
+#include <SPI.h>
+#include "commands.h"
 #include "ARMcalib.h"
 #include "Position.h"
 
 //#define stdPosition
+
 //#define CTRL_BY_MICROS
 //#define CTRL_BY_ANGLE
 #define CTRL_BY_CARSTESIAN
 
 #define TOF
+//#define TCS
 
 #define SQUARE(x) (x*x)
 #define CUBE(x) (x*x*x)
@@ -50,6 +55,33 @@ VL53L0X tof;
 float distance, prev_distance;
 #endif
 
+#ifdef TCS
+commands_t serial_commands;
+int show_lux;
+
+Adafruit_TCS34725 tcs = Adafruit_TCS34725(TCS34725_INTEGRATIONTIME_50MS, TCS34725_GAIN_4X);
+void getRawData_noDelay(uint16_t *r, uint16_t *g, uint16_t *b, uint16_t *c)
+{
+  *c = tcs.read16(TCS34725_CDATAL);
+  *r = tcs.read16(TCS34725_RDATAL);
+  *g = tcs.read16(TCS34725_GDATAL);
+  *b = tcs.read16(TCS34725_BDATAL);
+}
+
+void process_command(char command, float value)
+{
+  if (command == 'L')
+  { // The 'L' command controls if we calculate the Lux value
+
+    show_lux = value; // L1<enter> to turn on Lux calculation, L0<enter> to switch off
+  }
+  else if (command == 'o')
+  { // The 'o' command ...
+
+  } // Put here more commands...
+}
+#endif
+
 Servo Base;
 Servo Shoulder;
 Servo Elbow;
@@ -85,7 +117,23 @@ void doCommand3(char b, float* p, int* step);
 
 void setup(){
 	interval = 40;
+
 	Serial.begin(115200);
+	#ifdef TCS
+	serial_commands.init(process_command);
+
+	Wire.setSDA(4); // Connect TCS34725 SDA to gpio 8
+	Wire.setSCL(5); // Connect TCS34725 SCL to gpio 9
+	Wire.begin();
+
+	while (!tcs.begin())
+	{
+		Serial.println("No TCS34725 found ... check your connections");
+		delay(500);
+	}
+
+	Serial.println("Found sensor");
+	#endif
 
 	#ifdef TOF
 	Wire.setSDA(TOF_SDA_PIN);
@@ -137,6 +185,10 @@ void loop(){
 
 	if(Serial.available()){
 		b = Serial.read();
+		#ifdef TCS
+		serial_commands.process_char(b);
+		#endif
+		#ifndef TCS
 		#ifdef CTRL_BY_CARSTESIAN
       	doCommand2(b, targetPos, &c_step, &openClose);
 		#endif
@@ -145,6 +197,7 @@ void loop(){
 		#endif
 		#ifdef CTRL_BY_MICROS
 		doCommand3(b, targetPos, &c_step);
+		#endif
 		#endif
 	}
 
@@ -162,9 +215,35 @@ void loop(){
 			tof.startReadRangeMillimeters();
     	}	
 		#endif
-		// 0: 1000
-		// 90: 2000
-		
+
+		#ifdef TCS
+		uint16_t r, g, b, c, colorTemp, lux;
+		getRawData_noDelay(&r, &g, &b, &c);
+		if (show_lux)
+			lux = tcs.calculateLux(r, g, b);
+
+			Serial.print("Color Temp: ");
+			Serial.print(colorTemp, DEC);
+			Serial.print(" K - ");
+		if (show_lux)
+			Serial.print("Lux: ");
+			Serial.print(lux, DEC);
+			Serial.print(" - ");
+			Serial.print("R: ");
+			Serial.print(r, DEC);
+			Serial.print(" ");
+			Serial.print("G: ");
+			Serial.print(g, DEC);
+			Serial.print(" ");
+			Serial.print("B: ");
+			Serial.print(b, DEC);
+			Serial.print(" ");
+			Serial.print("C: ");
+			Serial.print(c, DEC);
+			Serial.print(" ");
+			Serial.print(" Command: ");
+			Serial.print(serial_commands.command);
+		#endif
 		
 		//analogWrite(SERVO1_PIN, cmd);
 
@@ -340,7 +419,7 @@ bool inverseKinematics(float *point, float& base, float& shoulder, float& elbow)
 	}
 
 	float r = sqrt(SQUARE(x) + SQUARE(y));
-	if(r <CAL_Hub_Diameter) {
+	if(r <CAL_Hub_Diameter/2) {
 		Serial.println("Point is too close to the hub");
 		r  = CAL_Hub_Diameter/2;
 	}
@@ -351,7 +430,8 @@ bool inverseKinematics(float *point, float& base, float& shoulder, float& elbow)
 		Serial.println("Point is too far from the hub");
 		HIP = CAL_SUP_CAP;
 	}
-	float q3_ = acos(2-(SQUARE(hp)+SQUARE(r))/SQUARE(l));
+	//float q3_ = acos(2-(SQUARE(hp)+SQUARE(r))/SQUARE(l));
+	float q3_ = acos(1-SQUARE(HIP)*0.5/SQUARE(l));
 
 	float alpha = atan2(hp,r);
 	float beta = (PI-q3_)/2;
@@ -484,7 +564,7 @@ void doCommand2(char b, float* p, int* step, int* openClose){// by cartesian
 
 	if (b == '1'){
 		//pp.setxyz(140, 0, 140);
-		p[0]=85;
+		p[0]=36;
 		p[1]=-40;
 		p[2]=70;
 	}
@@ -502,7 +582,7 @@ void doCommand2(char b, float* p, int* step, int* openClose){// by cartesian
 	}
 	if (b == '4'){
 		//pp.setxyz(140, 0, 140);
-		p[0]=85;
+		p[0]=36;
 		p[1]=40;
 		p[2]=70;
 	}

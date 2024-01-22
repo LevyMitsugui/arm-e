@@ -25,8 +25,8 @@
 #define CAL_D_5 (float)8
 #define CAL_H_1 (float)60
 
-#define CAL_Hub_Diameter (float)80.5
-#define CAL_SUP_CAP_FACTOR (float)0.84
+#define CAL_Hub_Diameter (float)65
+#define CAL_SUP_CAP_FACTOR (float)0.95
 #define CAL_SUP_CAP (float) (CAL_L_2+CAL_L_3)*CAL_SUP_CAP_FACTOR
 
 #define CAL_Z_SUP_CAP (float) 130
@@ -36,4 +36,4 @@
 #define MAX_SPEED (float) 150
 
 #define TOF_Z_CLEARANCE(float) 77 // z grabbar hight in witch it clears the tof view
-#define R_GRABBER_OFFSET (float) 40
+#define R_GRABBER_OFFSET (float) 50
