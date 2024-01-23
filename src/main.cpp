@@ -8,7 +8,7 @@
 #include <SPI.h>
 #include "commands.h"
 #include "ARMcalib.h"
-#include "Position.h"
+#include "Positions.h"
 
 //#define stdPosition
 
@@ -16,16 +16,17 @@
 //#define CTRL_BY_ANGLE
 //#define CTRL_BY_CARSTESIAN
 #define CTRL_AUTO
+bool doCube = false;
 
-#define TOF
-//#define TCS
+//#define TOF
+#define TCS
 
 #define SQUARE(x) (x*x)
 #define CUBE(x) (x*x*x)
 #define mm(x) (x/1000)
 
 #define STEP 1
-#define SERVO1_PIN 9	//BASE
+#define SERVO1_PIN 9	//BASE  
 #define SERVO2_PIN 10	//SHOULDER
 #define SERVO3_PIN 11	//ELBOW
 #define SERVO4_PIN 12	//GRABBER
@@ -93,6 +94,7 @@ uint16_t cmd_micros;
 
 // State Machines
 fsm_t cube;
+fsm_t pickAndDrop;
 
 // Other Variables
 Servo Base;
@@ -113,13 +115,15 @@ int thB, thS, thE;	//used for control by angle
 int openClose = 0;
 float speed = 20;
 
-Position p(0,0,0);
 float targetPos[3];
 float currPos[3];
 
 std::vector<std::array<float, 3>> points;
 bool targetReached = false;
 
+int numberLoosePieces = 4;
+int loosePiecesIterator = 0;
+int colour = 0;
 
 int s1dm(float rad);
 int s2dm(float rad);
@@ -131,6 +135,9 @@ bool inverseKinematics(float *point, float& base, float& shoulder, float& elbow)
 void doCommand1(char b, float* p);
 void doCommand2(char b, float* p, int* step, int* openClose);
 void doCommand3(char b, float* p, int* step);
+void setTarget(float* targetPos, float* pos);
+int colourDetection(uint16_t r, uint16_t g, uint16_t b);
+
 
 void setup(){
 	interval = 40;
@@ -157,7 +164,7 @@ void setup(){
 	Wire1.setSCL(TCS_SCL_PIN); // Connect TCS34725 SCL to gpio 9
 	Wire1.begin();
 
-	while (!tcs.begin())
+	while (!tcs.begin(TCS34725_ADDRESS, &Wire1))
 	{
 		Serial.println("No TCS34725 found ... check your connections");
 		delay(500);
@@ -208,7 +215,6 @@ void loop(){
 		#ifdef TCS
 		serial_commands.process_char(b);
 		#endif
-		#ifndef TCS
 		#ifdef CTRL_BY_CARSTESIAN
       	doCommand2(b, targetPos, &c_step, &openClose);
 		#endif
@@ -217,7 +223,6 @@ void loop(){
 		#endif
 		#ifdef CTRL_BY_MICROS
 		doCommand3(b, targetPos, &c_step);
-		#endif
 		#endif
 	}
 
@@ -270,68 +275,107 @@ void loop(){
 		unsigned long cur_time = millis();
 		#ifdef CTRL_AUTO
 		cube.tis = cur_time - cube.tes;
+		pickAndDrop.tis = cur_time - pickAndDrop.tes;
 
 		//	Calculate next states
-		if (cube.state == 0 && targetReached) cube.new_state = 1;
-		if (cube.state == 1 && targetReached) cube.new_state = 2;
-		if (cube.state == 2 && targetReached) cube.new_state = 3;
-		if (cube.state == 3 && targetReached) cube.new_state = 4;
-		if (cube.state == 4 && targetReached) cube.new_state = 5;
-		if (cube.state == 5 && targetReached) cube.new_state = 6;
-		if (cube.state == 6 && targetReached) cube.new_state = 7;
-		if (cube.state == 7 && targetReached) cube.new_state = 8;
-		if (cube.state == 8 && targetReached) cube.new_state = 9;
-		if (cube.state == 9 && targetReached) cube.new_state = 0;
+		if(doCube){
+			if (cube.state == 0 && targetReached) cube.new_state = 1;
+			if (cube.state == 1 && targetReached) cube.new_state = 2;
+			if (cube.state == 2 && targetReached) cube.new_state = 3;
+			if (cube.state == 3 && targetReached) cube.new_state = 4;
+			if (cube.state == 4 && targetReached) cube.new_state = 5;
+			if (cube.state == 5 && targetReached) cube.new_state = 6;
+			if (cube.state == 6 && targetReached) cube.new_state = 7;
+			if (cube.state == 7 && targetReached) cube.new_state = 8;
+			if (cube.state == 8 && targetReached) cube.new_state = 9;
+			if (cube.state == 9 && targetReached) cube.new_state = 0;
+		}
+		if (pickAndDrop.state == 0 && targetReached) pickAndDrop.new_state = 1;
+		else if (pickAndDrop.state == 1) pickAndDrop.new_state = 2;
+		else if (pickAndDrop.state == 2 && targetReached) pickAndDrop.new_state = 3;
+		else if (pickAndDrop.state == 3 && pickAndDrop.tis > 1000) pickAndDrop.new_state = 4;
+		else if (pickAndDrop.state == 4 && targetReached) pickAndDrop.new_state = 5;
+		else if (pickAndDrop.state == 5 && pickAndDrop.tis > 500) pickAndDrop.new_state = 6;
+		else if (pickAndDrop.state == 6)pickAndDrop.new_state = 7;
+		else if (pickAndDrop.state == 7 && targetReached) pickAndDrop.new_state = 10;
+		else if (pickAndDrop.state == 10 )pickAndDrop.new_state = 11;
+		else if (pickAndDrop.state == 11 && targetReached && ++loosePiecesIterator < numberLoosePieces) pickAndDrop.new_state = 0;
 		
-		
-
 		//	Update States
 		set_state(cube, cube.new_state);
+		set_state(pickAndDrop, pickAndDrop.new_state);
 		
 
 		//	Set Actions
-		if (cube.state == 0) {
-			targetPos[0] = 36;
-			targetPos[1] = -40;
-			targetPos[2] = 76;
-		} else if (cube.state == 1) {
-			targetPos[0] = 125;
-			targetPos[1] = -40;
-			targetPos[2] = 76;
-		} else if (cube.state == 2) {
-			targetPos[0] = 125;
-			targetPos[1] = 40;
-			targetPos[2] = 76;
-		} else if (cube.state == 3) {
-			targetPos[0] = 36;
-			targetPos[1] = 40;
-			targetPos[2] = 76;
-		} else if (cube.state == 4) {
-			targetPos[0] = 36;
-			targetPos[1] = -40;
-			targetPos[2] = 76;
-		} else if (cube.state == 5) {
-			targetPos[0] = 36;
-			targetPos[1] = -40;
-			targetPos[2] = 140;
-		} else if (cube.state == 6) {
-			targetPos[0] = 125;
-			targetPos[1] = -40;
-			targetPos[2] = 140;
-		} else if (cube.state == 7) {
-			targetPos[0] = 125;
-			targetPos[1] = 40;
-			targetPos[2] = 140;
-		} else if (cube.state == 8) {
-			targetPos[0] = 36;
-			targetPos[1] = 40;
-			targetPos[2] = 140;
-		} else if (cube.state == 9) {
-			targetPos[0] = 36;
-			targetPos[1] = -40;
-			targetPos[2] = 140;
+		if(pickAndDrop.state == 0){
+			setTarget(targetPos, initialPos);
+		} else if(pickAndDrop.state == 1){
+			openClose = 0;
+		} else if(pickAndDrop.state == 2){
+			setTarget(targetPos, pieces[loosePiecesIterator]);
+		} else if(pickAndDrop.state == 3){
+			openClose = 100;
+		} else if(pickAndDrop.state == 4){
+			setTarget(targetPos, colourSensorPos);
+		} else if(pickAndDrop.state == 5){
+			
+		} else if(pickAndDrop.state == 6){
+			colour = colourDetection(r, g, b);
+		}else if(pickAndDrop.state == 7){
+			setTarget(targetPos, contentores[colour]);
+		} else if(pickAndDrop.state == 8){
+			setTarget(targetPos, contentor2);
+		} else if(pickAndDrop.state == 9){
+			setTarget(targetPos, contentor3);
+		} else if(pickAndDrop.state == 10){
+			openClose = 0;
+		} else if(pickAndDrop.state == 11){
+			setTarget(targetPos, initialPos);
 		}
 
+		if(doCube){
+			if (cube.state == 0) {
+				targetPos[0] = 36;
+				targetPos[1] = -40;
+				targetPos[2] = 76;
+			} else if (cube.state == 1) {
+				targetPos[0] = 125;
+				targetPos[1] = -40;
+				targetPos[2] = 76;
+			} else if (cube.state == 2) {
+				targetPos[0] = 125;
+				targetPos[1] = 40;
+				targetPos[2] = 76;
+			} else if (cube.state == 3) {
+				targetPos[0] = 36;
+				targetPos[1] = 40;
+				targetPos[2] = 76;
+			} else if (cube.state == 4) {
+				targetPos[0] = 36;
+				targetPos[1] = -40;
+				targetPos[2] = 76;
+			} else if (cube.state == 5) {
+				targetPos[0] = 36;
+				targetPos[1] = -40;
+				targetPos[2] = 140;
+			} else if (cube.state == 6) {
+				targetPos[0] = 125;
+				targetPos[1] = -40;
+				targetPos[2] = 140;
+			} else if (cube.state == 7) {
+				targetPos[0] = 125;
+				targetPos[1] = 40;
+				targetPos[2] = 140;
+			} else if (cube.state == 8) {
+				targetPos[0] = 36;
+				targetPos[1] = 40;
+				targetPos[2] = 140;
+			} else if (cube.state == 9) {
+				targetPos[0] = 36;
+				targetPos[1] = -40;
+				targetPos[2] = 140;
+			}
+		}
 		//	Set Outputs
 		
 		#endif
@@ -372,8 +416,8 @@ void loop(){
 		Serial.print(distance, 3);
 		#endif
 		#ifdef CTRL_AUTO
-		Serial.print("   cube.state: ");
-		Serial.print(cube.state);
+		Serial.print("   PickAndDrop.state: ");
+		Serial.print(pickAndDrop.state);
 		#endif
 		#if defined(CTRL_BY_CARSTESIAN) || defined(CTRL_AUTO)
 		Serial.print("   Speed: ");
@@ -409,6 +453,7 @@ void loop(){
 		Serial.print(microsElbow);
 		Serial.print("   micros G: ");
 		Serial.print(microsGrabber);
+		
 
 		Serial.println();
 	}
@@ -681,6 +726,12 @@ void doCommand2(char b, float* p, int* step, int* openClose){// by cartesian
 		p[1]=-90;
 		p[2]=74;
 	}
+	if (b == '0'){
+		//pp.setxyz(140, 0, 140);
+		p[0]=colourSensorPos[0];
+		p[1]=colourSensorPos[1];
+		p[2]=colourSensorPos[2];
+	}
 
 	#ifdef TOF
 	if (b == 'm'){
@@ -742,4 +793,17 @@ void doCommand3(char b, float* p, int* step){
 		microsShoulder = (min2+max2)/2;
 		microsBase = (min1+max1)/2;
 	}
+}
+
+void setTarget(float* targetPos, float* pos){
+	targetPos[0] = pos[0];
+	targetPos[1] = pos[1];
+	targetPos[2] = pos[2];
+}
+
+int colourDetection(uint16_t r, uint16_t g, uint16_t b){
+	if(r>g && r> b) return 0;
+	if(g>r && g>b) return 1;
+	if(b>r && b>g) return 2;
+	else return -1;
 }
