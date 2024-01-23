@@ -1,6 +1,8 @@
 #include <Arduino.h>
 #include <Servo.h>
 #include <Wire.h>
+#include <vector>
+#include <array>
 #include <VL53L0X.h>
 #include <Adafruit_TCS34725.h>
 #include <SPI.h>
@@ -12,7 +14,8 @@
 
 //#define CTRL_BY_MICROS
 //#define CTRL_BY_ANGLE
-#define CTRL_BY_CARSTESIAN
+//#define CTRL_BY_CARSTESIAN
+#define CTRL_AUTO
 
 #define TOF
 //#define TCS
@@ -30,6 +33,9 @@
 #define TOF_SCL_PIN 17
 #define TOF_SDA_PIN 16
 
+#define TCS_SDA_PIN 18
+#define TCS_SCL_PIN 19
+
 int c_step = 1; // Configurable step
 
 typedef struct{
@@ -40,16 +46,16 @@ typedef struct{
 	unsigned long tes, tis;
 } fsm_t;
 
+void set_state(fsm_t &fsm, int new_state){
+	if (fsm.state != new_state)
+	{ // if the state chnanged tis is reset
+		fsm.state = new_state;
+		fsm.tes = millis();
+		fsm.tis = 0;
+	}
+}
 uint32_t interval, last_cycle;
 // input variables
-
-// Output variables
-uint16_t cmd;
-uint16_t cmd_micros;
-
-// State Machines
-
-// Other Variables
 #ifdef TOF
 VL53L0X tof;
 float distance, prev_distance;
@@ -81,7 +87,14 @@ void process_command(char command, float value)
   } // Put here more commands...
 }
 #endif
+// Output variables
+uint16_t cmd;
+uint16_t cmd_micros;
 
+// State Machines
+fsm_t cube;
+
+// Other Variables
 Servo Base;
 Servo Shoulder;
 Servo Elbow;
@@ -104,12 +117,16 @@ Position p(0,0,0);
 float targetPos[3];
 float currPos[3];
 
+std::vector<std::array<float, 3>> points;
+bool targetReached = false;
+
+
 int s1dm(float rad);
 int s2dm(float rad);
 int s3dm(float rad);
 int s4dm(int openClose);
 
-float* moveToTarget(float* currP, float* targetP, float speed, int cylclePeriod, float& base, float& shoulder, float& elbow);
+bool moveToTarget(float* currP, float* targetP, float speed, int cylclePeriod, float& base, float& shoulder, float& elbow);
 bool inverseKinematics(float *point, float& base, float& shoulder, float& elbow);
 void doCommand1(char b, float* p);
 void doCommand2(char b, float* p, int* step, int* openClose);
@@ -119,21 +136,7 @@ void setup(){
 	interval = 40;
 
 	Serial.begin(115200);
-	#ifdef TCS
-	serial_commands.init(process_command);
-
-	Wire.setSDA(4); // Connect TCS34725 SDA to gpio 8
-	Wire.setSCL(5); // Connect TCS34725 SCL to gpio 9
-	Wire.begin();
-
-	while (!tcs.begin())
-	{
-		Serial.println("No TCS34725 found ... check your connections");
-		delay(500);
-	}
-
-	Serial.println("Found sensor");
-	#endif
+	
 
 	#ifdef TOF
 	Wire.setSDA(TOF_SDA_PIN);
@@ -145,6 +148,22 @@ void setup(){
     delay(100);
   	}
 	tof.startReadRangeMillimeters();
+	#endif
+
+	#ifdef TCS
+	serial_commands.init(process_command);
+
+	Wire1.setSDA(TCS_SDA_PIN); // Connect TCS34725 SDA to gpio 8
+	Wire1.setSCL(TCS_SCL_PIN); // Connect TCS34725 SCL to gpio 9
+	Wire1.begin();
+
+	while (!tcs.begin())
+	{
+		Serial.println("No TCS34725 found ... check your connections");
+		delay(500);
+	}
+
+	Serial.println("Found sensor");
 	#endif
 
 	pinMode(LED_BUILTIN, OUTPUT);
@@ -172,6 +191,7 @@ void setup(){
 	currPos[0]=targetPos[0];
 	currPos[1]=targetPos[1];
 	currPos[2]=targetPos[2];
+	targetReached = true;
 
 	thB = 90;
 	thS = 90;
@@ -213,7 +233,7 @@ void loop(){
       		prev_distance = distance;
       		distance = tof.readRangeMillimeters();
 			tof.startReadRangeMillimeters();
-    	}	
+    	}
 		#endif
 
 		#ifdef TCS
@@ -245,25 +265,76 @@ void loop(){
 			Serial.print(serial_commands.command);
 		#endif
 		
-		//analogWrite(SERVO1_PIN, cmd);
 
 		//	Update State Machine Timers
 		unsigned long cur_time = millis();
-		//operation.tis 	 = cur_time - operation.tes;
+		#ifdef CTRL_AUTO
+		cube.tis = cur_time - cube.tes;
 
 		//	Calculate next states
-		//		State Machine operation		- define main operation of the system	
-		//		State Machine supDecipher	- helps to differentiate between a sup short press and a sup long press
-		//		State Machine ledControl	- define control state of the leds
+		if (cube.state == 0 && targetReached) cube.new_state = 1;
+		if (cube.state == 1 && targetReached) cube.new_state = 2;
+		if (cube.state == 2 && targetReached) cube.new_state = 3;
+		if (cube.state == 3 && targetReached) cube.new_state = 4;
+		if (cube.state == 4 && targetReached) cube.new_state = 5;
+		if (cube.state == 5 && targetReached) cube.new_state = 6;
+		if (cube.state == 6 && targetReached) cube.new_state = 7;
+		if (cube.state == 7 && targetReached) cube.new_state = 8;
+		if (cube.state == 8 && targetReached) cube.new_state = 9;
+		if (cube.state == 9 && targetReached) cube.new_state = 0;
+		
 		
 
 		//	Update States
-		//set_state(operation, operation.new_state);
+		set_state(cube, cube.new_state);
 		
 
 		//	Set Actions
+		if (cube.state == 0) {
+			targetPos[0] = 36;
+			targetPos[1] = -40;
+			targetPos[2] = 76;
+		} else if (cube.state == 1) {
+			targetPos[0] = 125;
+			targetPos[1] = -40;
+			targetPos[2] = 76;
+		} else if (cube.state == 2) {
+			targetPos[0] = 125;
+			targetPos[1] = 40;
+			targetPos[2] = 76;
+		} else if (cube.state == 3) {
+			targetPos[0] = 36;
+			targetPos[1] = 40;
+			targetPos[2] = 76;
+		} else if (cube.state == 4) {
+			targetPos[0] = 36;
+			targetPos[1] = -40;
+			targetPos[2] = 76;
+		} else if (cube.state == 5) {
+			targetPos[0] = 36;
+			targetPos[1] = -40;
+			targetPos[2] = 140;
+		} else if (cube.state == 6) {
+			targetPos[0] = 125;
+			targetPos[1] = -40;
+			targetPos[2] = 140;
+		} else if (cube.state == 7) {
+			targetPos[0] = 125;
+			targetPos[1] = 40;
+			targetPos[2] = 140;
+		} else if (cube.state == 8) {
+			targetPos[0] = 36;
+			targetPos[1] = 40;
+			targetPos[2] = 140;
+		} else if (cube.state == 9) {
+			targetPos[0] = 36;
+			targetPos[1] = -40;
+			targetPos[2] = 140;
+		}
 
 		//	Set Outputs
+		
+		#endif
 		#ifdef CTRL_BY_MICROS
 		Base.writeMicroseconds(microsBase);
 		Shoulder.writeMicroseconds(microsShoulder);
@@ -278,9 +349,9 @@ void loop(){
 		Shoulder.writeMicroseconds(s1dm(thS*PI/180));
 		Elbow.writeMicroseconds(s1dm(thE*PI/180));
 		#endif
-		#ifdef CTRL_BY_CARSTESIAN
+		#if defined(CTRL_BY_CARSTESIAN) || defined(CTRL_AUTO)
 		//inverseKinematics(targetPos, angBase, angShoulder, angElbow);
-		moveToTarget(currPos, targetPos, speed, interval, angBase, angShoulder, angElbow);		
+		targetReached = moveToTarget(currPos, targetPos, speed, interval, angBase, angShoulder, angElbow);		
 
 		microsBase = s1dm(angBase);
 		microsShoulder = s2dm(angShoulder);
@@ -300,7 +371,11 @@ void loop(){
 		Serial.print("   distance: ");
 		Serial.print(distance, 3);
 		#endif
-		#ifdef CTRL_BY_CARSTESIAN
+		#ifdef CTRL_AUTO
+		Serial.print("   cube.state: ");
+		Serial.print(cube.state);
+		#endif
+		#if defined(CTRL_BY_CARSTESIAN) || defined(CTRL_AUTO)
 		Serial.print("   Speed: ");
 		Serial.print(speed);
 		Serial.print("   currX: ");
@@ -316,7 +391,8 @@ void loop(){
 		Serial.print(targetPos[1]);
 		Serial.print("   targetZ: ");
 		Serial.print(targetPos[2]);
-
+		#endif
+		#ifdef CTRL_BY_CARSTESIAN
 		Serial.print("   base: ");
 		Serial.print(angBase*180/PI);
 		Serial.print("   shoulder: ");
@@ -445,11 +521,11 @@ bool inverseKinematics(float *point, float& base, float& shoulder, float& elbow)
 	return true;
 }
 
-float* moveToTarget(float* currP, float* targetP, float speed, int cylclePeriod, float& base, float& shoulder, float& elbow){
+bool moveToTarget(float* currP, float* targetP, float speed, int cylclePeriod, float& base, float& shoulder, float& elbow){
 	if(currP[0] < targetP[0]+POS_MARGIN && currP[0] > targetP[0]-POS_MARGIN){
 		if(currP[1] < targetP[1]+POS_MARGIN && currP[1] > targetP[1]-POS_MARGIN){
 			if(currP[2] < targetP[2]+POS_MARGIN && currP[2] > targetP[2]-POS_MARGIN){
-				return currP;
+				return true;
 			}
 		}
 	}
@@ -460,14 +536,14 @@ float* moveToTarget(float* currP, float* targetP, float speed, int cylclePeriod,
 	float sUnit[3] = {sVec[0]/sMod, sVec[1]/sMod, sVec[2]/sMod};
 	//Serial.printf("   SUnit: %.6f %.6f %.6f", sUnit[0], sUnit[1], sUnit[2]);
 
-	speed = (speed*powf(sMod*0.1, 1.8) > 150) ? 150 : speed*powf(sMod*0.1, 1.8);
+	speed = (speed*powf(E, sMod*0.025) > 150) ? 150 : speed*powf(E, sMod*0.025);
 
 	currP[0] = sUnit[0]*speed*1e-3*cylclePeriod + currP[0];
 	currP[1] = sUnit[1]*speed*1e-3*cylclePeriod + currP[1];
 	currP[2] = sUnit[2]*speed*1e-3*cylclePeriod + currP[2];
 
 	inverseKinematics(currP, base, shoulder, elbow);
-	return currP;
+	return false;
 }
 
 /**
