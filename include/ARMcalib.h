@@ -26,7 +26,7 @@
 #define CAL_H_1 (float)60
 
 #define CAL_Hub_Diameter (float)55
-#define CAL_SUP_CAP_FACTOR (float)0.95
+#define CAL_SUP_CAP_FACTOR (float) 1
 #define CAL_SUP_CAP (float) (CAL_L_2+CAL_L_3)*CAL_SUP_CAP_FACTOR
 
 #define CAL_Z_SUP_CAP (float) 130

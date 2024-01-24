@@ -15,7 +15,8 @@
 //#define CTRL_BY_MICROS
 //#define CTRL_BY_ANGLE
 //#define CTRL_BY_CARSTESIAN
-#define CTRL_AUTO
+//#define CTRL_AUTO
+#define CTRL_AUTO_W_CMD
 bool doCube = false;
 
 //#define TOF
@@ -38,6 +39,15 @@ bool doCube = false;
 #define TCS_SCL_PIN 19
 
 int c_step = 1; // Configurable step
+
+typedef struct{  
+  String command = "";
+  float value[4] = {0,0,0};
+}serialCommand_t;
+
+serialCommand_t serialCommand;
+String serialCommandBuff;
+int serialCommandCount = 0;
 
 typedef struct{
 	int state, new_state;
@@ -93,6 +103,7 @@ uint16_t cmd;
 uint16_t cmd_micros;
 
 // State Machines
+fsm_t operation;
 fsm_t cube;
 fsm_t pickAndDrop;
 
@@ -137,10 +148,12 @@ void doCommand2(char b, float* p, int* step, int* openClose);
 void doCommand3(char b, float* p, int* step);
 void setTarget(float* targetPos, float* pos);
 int colourDetection(uint16_t r, uint16_t g, uint16_t b);
+void processChar(char b);
+void doCommand();
 
 
 void setup(){
-	interval = 40;
+	interval = 25;
 
 	Serial.begin(115200);
 	
@@ -224,6 +237,9 @@ void loop(){
 		#ifdef CTRL_BY_MICROS
 		doCommand3(b, targetPos, &c_step);
 		#endif
+		#ifdef CTRL_AUTO_W_CMD
+		processChar(b);
+		#endif
 	}
 
 
@@ -244,13 +260,13 @@ void loop(){
 		#ifdef TCS
 		uint16_t r, g, b, c, colorTemp, lux;
 		getRawData_noDelay(&r, &g, &b, &c);
-		if (show_lux)
+		/*if (show_lux)
 			lux = tcs.calculateLux(r, g, b);
 
 			Serial.print("Color Temp: ");
 			Serial.print(colorTemp, DEC);
-			Serial.print(" K - ");
-		if (show_lux)
+			Serial.print(" K - "); */
+		/*if (show_lux)
 			Serial.print("Lux: ");
 			Serial.print(lux, DEC);
 			Serial.print(" - ");
@@ -265,7 +281,7 @@ void loop(){
 			Serial.print(" ");
 			Serial.print("C: ");
 			Serial.print(c, DEC);
-			Serial.print(" ");
+			Serial.print(" ");*/
 			Serial.print(" Command: ");
 			Serial.print(serial_commands.command);
 		#endif
@@ -273,6 +289,65 @@ void loop(){
 
 		//	Update State Machine Timers
 		unsigned long cur_time = millis();
+		#ifdef CTRL_AUTO_W_CMD
+			operation.tis = cur_time - operation.tes;
+			pickAndDrop.tis = cur_time - pickAndDrop.tes;
+
+			//calculate next states
+			if (operation.state == 0);
+			if (operation.state == 1 && pickAndDrop.state == 12) operation.new_state = 0;
+			
+			if(operation.state == 1){
+			if (pickAndDrop.state == 0 && targetReached) pickAndDrop.new_state = 1;
+			else if (pickAndDrop.state == 1) pickAndDrop.new_state = 2;
+			else if (pickAndDrop.state == 2 && targetReached) pickAndDrop.new_state = 3;
+			else if (pickAndDrop.state == 3 && pickAndDrop.tis > 1000) pickAndDrop.new_state = 4;
+			else if (pickAndDrop.state == 4 && targetReached) pickAndDrop.new_state = 5;
+			else if (pickAndDrop.state == 5 && pickAndDrop.tis > 500) pickAndDrop.new_state = 6;
+			else if (pickAndDrop.state == 6)pickAndDrop.new_state = 7;
+			else if (pickAndDrop.state == 7 && targetReached) pickAndDrop.new_state = 10;
+			else if (pickAndDrop.state == 10 )pickAndDrop.new_state = 11;
+			else if (pickAndDrop.state == 11 && targetReached && ++loosePiecesIterator < numberLoosePieces) pickAndDrop.new_state = 0;
+			else if (pickAndDrop.state == 11 && targetReached && loosePiecesIterator == numberLoosePieces) pickAndDrop.new_state = 12;
+			else if (pickAndDrop.state == 12) pickAndDrop.new_state = 0;
+			}
+			
+			//update states
+			set_state(operation, operation.new_state);
+			set_state(pickAndDrop, pickAndDrop.new_state);
+			
+			//set actions
+			if(pickAndDrop.state == 0){
+			setTarget(targetPos, initialPos);
+			} else if(pickAndDrop.state == 1){
+				openClose = 0;
+			} else if(pickAndDrop.state == 2){
+				setTarget(targetPos, pieces[loosePiecesIterator]);
+			} else if(pickAndDrop.state == 3){
+				openClose = 100;
+			} else if(pickAndDrop.state == 4){
+				setTarget(targetPos, colourSensorPos);
+			} else if(pickAndDrop.state == 5){
+				
+			} else if(pickAndDrop.state == 6){
+				colour = colourDetection(r, g, b);
+			}else if(pickAndDrop.state == 7){
+				setTarget(targetPos, contentores[colour]);
+			} else if(pickAndDrop.state == 8){
+				setTarget(targetPos, contentor2);
+			} else if(pickAndDrop.state == 9){
+				setTarget(targetPos, contentor3);
+			} else if(pickAndDrop.state == 10){
+				openClose = 0;
+			} else if(pickAndDrop.state == 11){
+				setTarget(targetPos, initialPos);
+			} else if(pickAndDrop.state == 12){
+				loosePiecesIterator = 0;
+			}
+
+			//set outputs
+		#endif
+
 		#ifdef CTRL_AUTO
 		cube.tis = cur_time - cube.tes;
 		pickAndDrop.tis = cur_time - pickAndDrop.tes;
@@ -393,7 +468,7 @@ void loop(){
 		Shoulder.writeMicroseconds(s1dm(thS*PI/180));
 		Elbow.writeMicroseconds(s1dm(thE*PI/180));
 		#endif
-		#if defined(CTRL_BY_CARSTESIAN) || defined(CTRL_AUTO)
+		#if defined(CTRL_BY_CARSTESIAN) || defined(CTRL_AUTO) || defined(CTRL_AUTO_W_CMD)
 		//inverseKinematics(targetPos, angBase, angShoulder, angElbow);
 		targetReached = moveToTarget(currPos, targetPos, speed, interval, angBase, angShoulder, angElbow);		
 
@@ -443,6 +518,21 @@ void loop(){
 		Serial.print(angShoulder*180/PI);
 		Serial.print("   elbow: ");
 		Serial.print(angElbow*180/PI);
+		#endif
+
+		#ifdef CTRL_AUTO_W_CMD
+		Serial.print("|    >> ");
+		Serial.print(serialCommandBuff);
+		Serial.print("  |");
+		Serial.print("   op_state: ");
+		Serial.print(operation.state);
+		Serial.print("   pickAndDrop.state: ");
+		Serial.print(pickAndDrop.state);
+
+		Serial.print("   command: ");
+		Serial.print(serialCommand.command);
+		Serial.print("   value 1: ");
+		Serial.print(serialCommand.value[0]);
 		#endif
 
 		Serial.print("   micros B: ");
@@ -806,4 +896,70 @@ int colourDetection(uint16_t r, uint16_t g, uint16_t b){
 	if(g>r && g>b) return 1;
 	if(b>r && b>g) return 2;
 	else return -1;
+}
+
+void processChar(char b){
+  switch (b)
+  {
+  case '\b':
+    serialCommandCount = 0;
+    Serial.println("Backspace");
+    serialCommandBuff = "";
+    serialCommand.command = "";
+    serialCommand.value[0] = 0;
+    serialCommand.value[1] = 0;
+    serialCommand.value[2] = 0;
+    serialCommand.value[3] = 0;
+
+    break;
+  
+  case '\n':
+    
+    Serial.println("Enter");
+    serialCommand.value[serialCommandCount-1] = serialCommandBuff.toFloat();
+
+	doCommand();
+
+    serialCommandCount = 0;
+    serialCommandBuff = "";
+    break;
+
+  case 0x20:
+    if(serialCommandCount>0) {serialCommandBuff = ""; break;}
+    Serial.print("Space: ");
+    serialCommand.command = serialCommandBuff;
+    Serial.println(serialCommand.command);
+    serialCommandBuff = "";
+    serialCommandCount++;
+    break;
+  
+  case ',':
+    if(serialCommandCount>3) {serialCommandBuff = ""; break;}
+    serialCommand.value[serialCommandCount-1] = serialCommandBuff.toFloat();
+    serialCommandCount++;
+    serialCommandBuff = "";
+    break;
+
+  default:
+    serialCommandBuff.concat(b);
+    break;
+  }
+}
+
+void doCommand(){
+	if(serialCommand.command.equals("operation")){
+		operation.new_state = serialCommand.value[0];
+	}
+	if(serialCommand.command.equals("loosepiece")){
+		pieces[(int)(serialCommand.value[0])][0] = serialCommand.value[1];
+		pieces[(int)(serialCommand.value[0])][1] = serialCommand.value[2];
+		pieces[(int)(serialCommand.value[0])][2] = serialCommand.value[3];
+
+		Serial.print(pieces[(int)serialCommand.value[0]][0]);
+		Serial.print(pieces[(int)serialCommand.value[0]][1]);
+		Serial.println(pieces[(int)serialCommand.value[0]][2]);
+	}
+	else {
+		Serial.println("INVALID COMMAND");
+	}
 }
