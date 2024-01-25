@@ -39,7 +39,7 @@
 #define R_GRABBER_OFFSET (float) 50 //distance in radius from the calculated target or current point to the tip of the grabber
 #define R_TOF_OFFSET (float) 90 //distance from the tof sensor to the origin
 
-#define maxTofRange(float) CAL_SUP_CAP + R_GRABBER_OFFSET;
+#define MAX_TOF_RANGE (float) CAL_SUP_CAP + R_GRABBER_OFFSET;
 
 
 #define E (float) 2.718282

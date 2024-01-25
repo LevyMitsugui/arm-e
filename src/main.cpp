@@ -136,10 +136,22 @@ float targetPos[3];
 float currPos[3];
 bool targetReached = false;
 
+// Colour read, (0 - red, 1 - green, 2 - blue)
+int colour;
+
 // Pick and Drop Variables
 int numberLoosePieces = 4;
 int loosePiecesIterator = 0;
-int colour = 0;
+
+// Grid Variables
+int gridSize = GRID_SIZE;
+int gridIterator = 0;
+
+// Automatic Variables
+float closestDetectedPoint1[3];
+float closestDetectedPoint2[3];
+float closestDetectedRadius1 = MAX_TOF_RANGE;
+float closestDetectedRadius2 = MAX_TOF_RANGE;
 
 // Servo conversion
 int s1dm(float rad);
@@ -153,9 +165,10 @@ void doCommand1(char b, float* p);
 void doCommand2(char b, float* p, int* step, int* openClose);
 void doCommand3(char b, float* p, int* step);
 void setTarget(float* targetPos, float* pos);
+void setTarget(float* targetPos, float* pos, float z_offset);
 void resetPickAndDrop();
 void resetGridSM();
-float lookAtTarget(float* pos);
+float lookAtTarget(float* pos, float& angBase);
 int colourDetection(uint16_t r, uint16_t g, uint16_t b);
 void processChar(char b);
 void doCommand();
@@ -307,6 +320,7 @@ void loop(){
 		//calculate next states
 		if (operation.state == 0);
 		if (operation.state == 1 && pickAndDrop.state == 12) operation.new_state = 0;
+		if (operation.state == 2 && gridSM.state == 9) operation.new_state = 0;
 		
 		if(operation.state == 1){
 			if (pickAndDrop.state == 0 && targetReached) pickAndDrop.new_state = 1;
@@ -323,8 +337,17 @@ void loop(){
 			else if (pickAndDrop.state == 12) pickAndDrop.new_state = 0;
 		}
 
-		if (operation.state == 2){
+		if (operation.state == 2){ // grid 3x3
 			if (gridSM.state == 0 && targetReached) gridSM.new_state = 1;
+			else if (gridSM.state == 1 && targetReached) gridSM.new_state = 2;
+			else if (gridSM.state == 2 && gridSM.tis > 500) gridSM.new_state = 3;
+			else if (gridSM.state == 3 && targetReached) gridSM.new_state = 4;
+			else if (gridSM.state == 4 && targetReached) gridSM.new_state = 5;
+			else if (gridSM.state == 5 && targetReached && gridSM.tis > 500) gridSM.new_state = 6;
+			else if (gridSM.state == 6 && gridSM.tis > 500) gridSM.new_state = 7;
+			else if (gridSM.state == 7 && targetReached) gridSM.new_state = 8;
+			else if (gridSM.state == 8 && gridIterator < gridSize) gridSM.new_state = 0;
+			else if (gridSM.state == 8 && gridSM.tis > 1000 && gridIterator >= gridSize) gridSM.new_state = 9;
 		}
 
 		if (operation.state == 3)
@@ -378,6 +401,29 @@ void loop(){
 			}
 		} else if (operation.state == 2){
 			if(gridSM.state == 0){
+				setTarget(targetPos, initialPos);
+				openClose = 70;
+			} else if (gridSM.state == 1){
+				setTarget(targetPos, gridPositions[gridIterator]);
+			} else if (gridSM.state == 2){
+				openClose = 100;
+			} else if (gridSM.state == 3){
+				setTarget(targetPos, gridPositions[gridIterator], 50);
+				Serial.println(" - - - SAIU - - - ");
+			} else if (gridSM.state == 4){
+				setTarget(targetPos, colourSensorPos);
+			} else if (gridSM.state == 5){
+				setTarget(targetPos, colourSensorPos);
+			} else if (gridSM.state == 6){
+				colour = colourDetection(r, g, b);
+			} else if (gridSM.state == 7){
+				setTarget(targetPos, contentores[colour]);
+			} else if (gridSM.state == 8){
+				gridIterator++;
+				Serial.print("  iterator: ");
+				Serial.print(gridIterator);
+				openClose = 70;
+			} else if (gridSM.state == 9){
 				setTarget(targetPos, initialPos);
 			}
 		}
@@ -563,9 +609,13 @@ void loop(){
 		}
 		Serial.print("   op_state: ");
 		Serial.print(operation.state);
-		Serial.print("   pickAndDrop.state: ");
-		Serial.print(pickAndDrop.state);
-
+		if (operation.state == 1){
+			Serial.print("   pickAndDrop.state: ");
+			Serial.print(pickAndDrop.state);
+		} else if (operation.state == 2){
+			Serial.print("   grid state: ");
+			Serial.print(gridSM.state);
+		}
 		Serial.print("   command: ");
 		Serial.print(serialCommand.command);
 		Serial.print("   value 1: ");
@@ -937,6 +987,11 @@ void setTarget(float* targetPos, float* pos){
 	targetPos[1] = pos[1];
 	targetPos[2] = pos[2];
 }
+void setTarget(float* targetPos, float* pos, float z_offset){
+	targetPos[0] = pos[0];
+	targetPos[1] = pos[1];
+	targetPos[2] = pos[2] + z_offset;
+}
 
 int colourDetection(uint16_t r, uint16_t g, uint16_t b){
 	if(r>g && r> b) return 0;
@@ -1059,7 +1114,7 @@ void doCommand(){
 		gridPositions[(int)serialCommand.value[0]][2] = currPos[2];
 
 	}else if(serialCommand.command.equals("lookat")){
-		lookAtTarget(gridPositions[(int)serialCommand.value[0]]);
+		lookAtTarget(gridPositions[(int)serialCommand.value[0]], angBase);
 	}
 	else {
 		Serial.println(" ! ! ! ! ! INVALID COMMAND ! ! ! ! !");
@@ -1079,16 +1134,21 @@ void resetPickAndDrop(){
 }
 
 void resetGridSM(){
+	gridIterator = 0;
 	gridSM.new_state = 0;
 	set_state(gridSM, gridSM.new_state);
 }
 
-float lookAtTarget(float* pos){
-	float absV = pitagoras(pos[0], pos[1], pos[2]);
-	float unit[3] = {pos[0]/absV, pos[1]/absV, pos[2]/absV};
-	float absInitial = pitagoras(initialPos[0], initialPos[1], initialPos[2]);
-	float ret[3] = {unit[0]*absInitial, unit[1]*absInitial, initialPos[2]};
+void resetAutomatic(){
+	
+	
+	automatic.new_state = 0;
+	set_state(automatic, automatic.new_state);
+}
 
-	setTarget(targetPos, ret);
-	return ret[0];
+float lookAtTarget(float* pos, float& angBase){
+
+	setTarget(targetPos, initialPos);
+	angBase = atan2(pos[1],pos[0]) + PI/2;
+	return angBase;
 }
