@@ -2,6 +2,9 @@
 float colourSensorPos[3] = {0,-75,87};
 float initialPos[3] = {30,0,80};
 
+float maxRight[3] = {32,-40,69};
+float maxLeft[3] = {32,40,69};
+
 float contentor1[3] = {32,40,69};///red 
 float contentor2[3] = {30,0,80};////blue 
 float contentor3[3] = {30,0,80};////green
