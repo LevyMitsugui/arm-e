@@ -141,12 +141,13 @@ bool targetReached = false;
 int colour;
 
 // Pick and Drop Variables
-int numberLoosePieces = 4;
+int numberLoosePieces = 1;
 int loosePiecesIterator = 0;
 
 // Grid Variables
 int gridSize = GRID_SIZE;
 int gridIterator = 0;
+bool ignoreMissRead = false;
 
 // Automatic Variables
 float closestDetectedPoint1[3];
@@ -372,12 +373,16 @@ void loop(){
 			else if (pickAndDrop.state == 3 && pickAndDrop.tis > 1000) pickAndDrop.new_state = 4;
 			else if (pickAndDrop.state == 4 && targetReached) pickAndDrop.new_state = 5;
 			else if (pickAndDrop.state == 5 && pickAndDrop.tis > 500) pickAndDrop.new_state = 6;
-			else if (pickAndDrop.state == 6)pickAndDrop.new_state = 7;
+			else if (pickAndDrop.state == 6 && pickAndDrop.tis > 800)pickAndDrop.new_state = 7;
+			else if (pickAndDrop.state == 6 && colour == -1)pickAndDrop.new_state = 20;
 			else if (pickAndDrop.state == 7 && targetReached) pickAndDrop.new_state = 10;
 			else if (pickAndDrop.state == 10 )pickAndDrop.new_state = 11;
 			else if (pickAndDrop.state == 11 && targetReached && ++loosePiecesIterator < numberLoosePieces) pickAndDrop.new_state = 0;
 			else if (pickAndDrop.state == 11 && targetReached && loosePiecesIterator == numberLoosePieces) pickAndDrop.new_state = 12;
 			else if (pickAndDrop.state == 12) pickAndDrop.new_state = 0;
+
+			else if (pickAndDrop.state == 20 && targetReached) pickAndDrop.new_state = 21;
+			else if (pickAndDrop.state == 21) pickAndDrop.new_state = 0;
 		}
 
 		if (operation.state == 2){ // grid 3x3
@@ -388,9 +393,13 @@ void loop(){
 			else if (gridSM.state == 4 && targetReached) gridSM.new_state = 5;
 			else if (gridSM.state == 5 && targetReached && gridSM.tis > 500) gridSM.new_state = 6;
 			else if (gridSM.state == 6 && gridSM.tis > 500) gridSM.new_state = 7;
+			else if (gridSM.state == 6 && colour ==-1) gridSM.new_state = 20;
 			else if (gridSM.state == 7 && targetReached) gridSM.new_state = 8;
 			else if (gridSM.state == 8 && gridIterator < gridSize) gridSM.new_state = 0;
 			else if (gridSM.state == 8 && gridSM.tis > 1000 && gridIterator >= gridSize) gridSM.new_state = 9;
+
+			else if (gridSM.state == 20 && targetReached) gridSM.new_state = 21;
+			else if (gridSM.state == 21) gridSM.new_state = 0;
 		}
 
 		if (operation.state == 3)
@@ -481,6 +490,13 @@ void loop(){
 			} else if(pickAndDrop.state == 12){
 				loosePiecesIterator = 0;
 			}
+
+			else if(gridSM.state == 20){
+				setTarget(targetPos, discardMissRead);
+			} else if(gridSM.state == 21){
+				if(ignoreMissRead) loosePiecesIterator++;
+				openClose = 50;
+			}
 		} else if (operation.state == 2){
 			if(gridSM.state == 0){
 				setTarget(targetPos, initialPos);
@@ -507,6 +523,14 @@ void loop(){
 			} else if (gridSM.state == 9){
 				setTarget(targetPos, initialPos);
 			}
+
+			else if(gridSM.state == 20){
+				setTarget(targetPos, discardMissRead);
+			} else if(gridSM.state == 21){
+				if(ignoreMissRead) gridIterator++;
+				openClose = 50;
+			}
+
 		} else if (operation.state == 3){
 			if(automatic.state == 0){
 				setTarget(targetPos, startScanPosition);
@@ -1296,8 +1320,8 @@ void doCommand(){
 		gridPositions[(int)serialCommand.value[0]][1] = currPos[1];
 		gridPositions[(int)serialCommand.value[0]][2] = currPos[2];
 
-	}else if(serialCommand.command.equals("lookat")){
-		
+	} else if(serialCommand.command.equals("ignoremissread")){
+		ignoreMissRead = (serialCommand.value[0] == 1)? true : false;
 	}
 	else {
 		Serial.println(" ! ! ! ! ! INVALID COMMAND ! ! ! ! !");

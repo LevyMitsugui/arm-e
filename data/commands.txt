@@ -1,0 +1,24 @@
+
+operation n | n - state to state Machine
+            | 0 - idle 
+            | 1 - pickAndDrop
+            | 2 - grid
+            | 4 - full auto
+
+stop | stops machine
+
+loosepiece n,x,y,z | n - index of the piece to change its position
+
+numberloosepieces n | n - number of pieces to be picked
+
+contentorpos n,x,y,z | n - index of the contentor(0-red, 1-g, 2-b)
+
+gridpos n,x,y,z | n - index of one grid Space
+
+origin | sends the grabber to the initial position
+
+savepiecepos n | n - index of the piece, xyz will be the set as the current position of the robot
+
+savecontentorpos n | n - index of the contentor, xyz will be the set as the current position of the robot
+
+savegridpos n | n - index of one grid space, xyz will be the set as the current position of the robot
