@@ -3,7 +3,7 @@
 #define max1 2500
 //Shoulder Servo:
 #define min2 1100//1442
-#define max2 2307
+#define max2 2400//2307
 //Elbow Servo:
 #define min3 850//963
 #define max3 1853//1833
@@ -39,7 +39,10 @@
 #define R_GRABBER_OFFSET (float) 50 //distance in radius from the calculated target or current point to the tip of the grabber
 #define R_TOF_OFFSET (float) 90 //distance from the tof sensor to the origin
 
-#define MAX_TOF_RANGE (float) CAL_SUP_CAP + R_GRABBER_OFFSET;
+#define MAX_TOF_RANGE (float) CAL_SUP_CAP + R_GRABBER_OFFSET - 40
 
+#define SCAN_ANGLE_RANGE (float) 120*PI/180
+#define SCAN_DIRECTION (float) PI/2 - PI/8
 
 #define E (float) 2.718282
+#define ONE_MAGIC_NUMBER (float) 6

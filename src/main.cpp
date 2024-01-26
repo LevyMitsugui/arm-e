@@ -109,6 +109,7 @@ fsm_t cube;
 fsm_t pickAndDrop;
 fsm_t gridSM;
 fsm_t automatic;
+fsm_t fullAuto;
 
 // Other Variables
 Servo Base;
@@ -152,6 +153,19 @@ float closestDetectedPoint1[3];
 float closestDetectedPoint2[3];
 float closestDetectedRadius1 = MAX_TOF_RANGE;
 float closestDetectedRadius2 = MAX_TOF_RANGE;
+float startScanPosition[3] = {10,-30, 80};
+bool reachedScanEnd = false;
+
+// Full Auto Variables
+float closestDetectedPiece[3];
+float closestDetectedRadius = MAX_TOF_RANGE;
+float startFAScanPosition[3] = {10,-30, 80};
+float endScanPosition[3] = {25,19,80};
+float discardMissRead[3] = {25,-120,100};
+int emptyPassesCounter = 0;
+int maxEmptyPasses = 3;
+bool reachedFAScanEnd = false;
+
 
 // Servo conversion
 int s1dm(float rad);
@@ -164,11 +178,14 @@ bool inverseKinematics(float *point, float& base, float& shoulder, float& elbow)
 void doCommand1(char b, float* p);
 void doCommand2(char b, float* p, int* step, int* openClose);
 void doCommand3(char b, float* p, int* step);
+void setCurrentPosition(float* currPos, float* pos);
 void setTarget(float* targetPos, float* pos);
 void setTarget(float* targetPos, float* pos, float z_offset);
 void resetPickAndDrop();
 void resetGridSM();
-float lookAtTarget(float* pos, float& angBase);
+void resetAutomatic();
+void resetFullAuto();
+boolean rotateScan(float scanDirection, float scanAngle, int samples, String direction);
 int colourDetection(uint16_t r, uint16_t g, uint16_t b);
 void processChar(char b);
 void doCommand();
@@ -176,7 +193,7 @@ int detectpiece(float distance, float maxTofRange);
 
 
 void setup(){
-	interval = 40;
+	interval = 25;
 
 	Serial.begin(115200);
 	
@@ -277,6 +294,29 @@ void loop(){
       		distance = tof.readRangeMillimeters();
 			tof.startReadRangeMillimeters();
     	}
+
+		if(detectpiece(distance, MAX_TOF_RANGE) && (automatic.state == 1 || fullAuto.state == 1)){
+			if(distance < closestDetectedRadius1 || distance < closestDetectedRadius){
+				closestDetectedRadius1 = distance;
+				closestDetectedRadius = distance;
+
+				closestDetectedPoint1[0] = sin(angBase)*(distance + ONE_MAGIC_NUMBER);// + R_TOF_OFFSET - R_GRABBER_OFFSET);
+				closestDetectedPoint1[1] = -1*cos(angBase)*(distance+  + ONE_MAGIC_NUMBER);// + R_TOF_OFFSET - R_GRABBER_OFFSET);
+				closestDetectedPoint1[2] = 38;
+
+				closestDetectedPiece[0] = sin(angBase)*(distance + ONE_MAGIC_NUMBER);// + R_TOF_OFFSET - R_GRABBER_OFFSET);
+				closestDetectedPiece[1] = -1*cos(angBase)*(distance+  + ONE_MAGIC_NUMBER);// + R_TOF_OFFSET - R_GRABBER_OFFSET);
+				closestDetectedPiece[2] = 38;
+			}
+		} else if (detectpiece(distance, MAX_TOF_RANGE) && automatic.state == 2){
+			if(distance < closestDetectedRadius2){
+				closestDetectedRadius2 = distance;
+				closestDetectedPoint2[0] = sin(angBase)*(distance  + ONE_MAGIC_NUMBER);
+				closestDetectedPoint2[1] = -1*cos(angBase)*(distance  + ONE_MAGIC_NUMBER);
+				closestDetectedPoint2[2] = 40;
+			}
+		}
+
 		#endif
 
 		#ifdef TCS
@@ -303,9 +343,9 @@ void loop(){
 			Serial.print(" ");
 			Serial.print("C: ");
 			Serial.print(c, DEC);
-			Serial.print(" ");*/
+			Serial.print(" ");
 			Serial.print(" Command: ");
-			Serial.print(serial_commands.command);
+			Serial.print(serial_commands.command);*/
 		#endif
 		
 
@@ -316,11 +356,14 @@ void loop(){
 		pickAndDrop.tis = cur_time - pickAndDrop.tes;
 		gridSM.tis = cur_time - gridSM.tes;
 		automatic.tis = cur_time - automatic.tes;
+		fullAuto.tis = cur_time - fullAuto.tes;
 
 		//calculate next states
 		if (operation.state == 0);
 		if (operation.state == 1 && pickAndDrop.state == 12) operation.new_state = 0;
 		if (operation.state == 2 && gridSM.state == 9) operation.new_state = 0;
+		//if (operation.state == 3 && automatic.state == 2) operation.new_state = 0;
+		if (operation.state == 4 && fullAuto.state == 52) operation.new_state = 0;
 		
 		if(operation.state == 1){
 			if (pickAndDrop.state == 0 && targetReached) pickAndDrop.new_state = 1;
@@ -353,6 +396,44 @@ void loop(){
 		if (operation.state == 3)
 		{
 			if (automatic.state == 0 && targetReached) automatic.new_state =1;
+			else if (automatic.state == 1 && reachedScanEnd) automatic.new_state = 2;
+			else if (automatic.state == 2 && reachedScanEnd) automatic.new_state = 3;
+			else if (automatic.state == 3 && targetReached && fullAuto.tis > 2000) automatic.new_state = 4;
+			else if (automatic.state == 4 && targetReached) automatic.new_state = 5;
+			else if (automatic.state == 5 && automatic.tis > 500) automatic.new_state = 6;
+			else if (automatic.state == 6 && targetReached) automatic.new_state = 7;
+			else if (automatic.state == 7 && targetReached) automatic.new_state = 8;
+			else if (automatic.state == 8 && automatic.tis > 500) automatic.new_state = 9;
+			else if (automatic.state == 9 && targetReached) automatic.new_state = 10;
+			else if (automatic.state == 10 && automatic.tis > 500) automatic.new_state = 11;
+			else if (automatic.state == 11 && targetReached) automatic.new_state = 0;
+		} else if (operation.state == 4) {
+			if (fullAuto.state == 0 && targetReached) fullAuto.new_state = 1;
+			else if(fullAuto.state == 1 && reachedFAScanEnd){
+				fullAuto.new_state = 2;
+				setCurrentPosition(currPos, endScanPosition);
+				targetReached = false;
+			}
+			else if(fullAuto.state == 2 && closestDetectedRadius >= MAX_TOF_RANGE) fullAuto.new_state = 50;
+			else if(fullAuto.state == 2 && targetReached) fullAuto.new_state = 3;
+			else if(fullAuto.state == 3 && targetReached) fullAuto.new_state = 4;
+			else if(fullAuto.state == 4 && targetReached) fullAuto.new_state = 5;
+			else if(fullAuto.state == 5 && fullAuto.tis >= 1000) fullAuto.new_state = 6;
+			else if(fullAuto.state == 6 && targetReached) fullAuto.new_state = 7;
+			else if(fullAuto.state == 7 && targetReached) fullAuto.new_state = 8;
+			else if(fullAuto.state == 8 && fullAuto.tis >= 1000 && colour == -1) fullAuto.new_state = 60;
+			else if(fullAuto.state == 8 && fullAuto.tis >= 1000 && colour != -1) fullAuto.new_state = 9;
+			else if(fullAuto.state == 9 && targetReached) fullAuto.new_state = 10;
+			else if(fullAuto.state == 10 && targetReached) fullAuto.new_state = 11;
+			else if(fullAuto.state == 11 && targetReached) fullAuto.new_state = 12;
+			else if(fullAuto.state == 12 && targetReached) fullAuto.new_state = 0;
+
+			else if(fullAuto.state == 60 && targetReached) fullAuto.new_state = 61;
+			else if(fullAuto.state == 61 && fullAuto.tis >= 1000) fullAuto.new_state = 0;
+
+			else if(fullAuto.state == 50 && emptyPassesCounter < maxEmptyPasses) fullAuto.new_state = 0;
+			else if(fullAuto.state == 50 && emptyPassesCounter >= maxEmptyPasses) fullAuto.new_state = 51;
+			else if(fullAuto.state == 51 && targetReached) fullAuto.new_state = 52;
 		}
 
 		
@@ -361,19 +442,20 @@ void loop(){
 		set_state(pickAndDrop, pickAndDrop.new_state);
 		set_state(gridSM, gridSM.new_state);
 		set_state(automatic, automatic.new_state);
+		set_state(fullAuto, fullAuto.new_state);
 		
 		//set actions
 		if(operation.state == 0){
 			resetPickAndDrop();
 			resetGridSM();
-			automatic.new_state = 0;
-			set_state(automatic, 0);
+			resetAutomatic();
+			resetFullAuto();
 
 		} else if(operation.state == 1){
 			if(pickAndDrop.state == 0){
 				setTarget(targetPos, initialPos);
 			} else if(pickAndDrop.state == 1){
-				openClose = 70;
+				openClose = 50;
 			} else if(pickAndDrop.state == 2){
 				setTarget(targetPos, pieces[loosePiecesIterator]);
 				Serial.print("  Going for piece: ");
@@ -402,14 +484,13 @@ void loop(){
 		} else if (operation.state == 2){
 			if(gridSM.state == 0){
 				setTarget(targetPos, initialPos);
-				openClose = 70;
+				openClose = 50;
 			} else if (gridSM.state == 1){
 				setTarget(targetPos, gridPositions[gridIterator]);
 			} else if (gridSM.state == 2){
 				openClose = 100;
 			} else if (gridSM.state == 3){
 				setTarget(targetPos, gridPositions[gridIterator], 50);
-				Serial.println(" - - - SAIU - - - ");
 			} else if (gridSM.state == 4){
 				setTarget(targetPos, colourSensorPos);
 			} else if (gridSM.state == 5){
@@ -422,9 +503,84 @@ void loop(){
 				gridIterator++;
 				Serial.print("  iterator: ");
 				Serial.print(gridIterator);
-				openClose = 70;
+				openClose = 50;
 			} else if (gridSM.state == 9){
 				setTarget(targetPos, initialPos);
+			}
+		} else if (operation.state == 3){
+			if(automatic.state == 0){
+				setTarget(targetPos, startScanPosition);
+			} else if (automatic.state == 1){
+				reachedScanEnd = rotateScan(SCAN_DIRECTION, SCAN_ANGLE_RANGE, 300, "left");
+				Serial.print("  Scanning left. min dist: ");
+				Serial.print(closestDetectedRadius1);
+			} else if(automatic.state == 2){
+				reachedScanEnd = rotateScan(SCAN_DIRECTION, SCAN_ANGLE_RANGE, 50, "right");
+			} else if(automatic.state == 3){
+				setTarget(targetPos, closestDetectedPoint1, 50);
+			} else if(automatic.state == 4){
+				setTarget(targetPos, closestDetectedPoint1);
+			} else if(automatic.state == 5){
+				openClose = 100;
+			} else if(automatic.state == 6){
+				setTarget(targetPos, closestDetectedPoint1, 50);
+			} else if(automatic.state == 7){
+				setTarget(targetPos, colourSensorPos);
+			} else if(automatic.state == 8){
+				colour = colourDetection(r, g, b);
+			} else if(automatic.state == 9){
+				setTarget(targetPos, contentores[colour]);
+			} else if(automatic.state == 10){
+				openClose = 50;
+			} else if(automatic.state == 11){
+				setTarget(targetPos, startScanPosition);
+				closestDetectedRadius1 = MAX_TOF_RANGE;
+				closestDetectedRadius2 = MAX_TOF_RANGE;
+			}
+		} else if(operation.state == 4){
+			if(fullAuto.state == 0){
+				closestDetectedRadius = MAX_TOF_RANGE;
+				setTarget(targetPos, startFAScanPosition);
+			} else if(fullAuto.state == 1){
+				reachedFAScanEnd = rotateScan(SCAN_DIRECTION, SCAN_ANGLE_RANGE, 360, "left");
+			} else if(fullAuto.state == 2){
+				setTarget(targetPos, endScanPosition);
+			} else if(fullAuto.state == 3){
+				setTarget(targetPos, closestDetectedPiece, 50);
+			} else if(fullAuto.state == 4){
+				setTarget(targetPos, closestDetectedPiece);
+			} else if(fullAuto.state == 5){
+				openClose = 100;
+			} else if(fullAuto.state == 6){
+				setTarget(targetPos, closestDetectedPiece, 50);
+			} else if (fullAuto.state == 7){
+				setTarget(targetPos, colourSensorPos);
+			} else if (fullAuto.state == 8){
+				colour = colourDetection(r, g, b);
+			} else if (fullAuto.state == 9){
+				setTarget(targetPos, initialPos);
+			} else if (fullAuto.state == 10){
+				setTarget(targetPos, contentores[colour]);
+			} else if (fullAuto.state == 11){
+				emptyPassesCounter = 0;
+				openClose = 50;
+			} else if (fullAuto.state == 12){
+				closestDetectedRadius = MAX_TOF_RANGE;
+				setTarget(targetPos, initialPos);
+			}
+
+			else if (fullAuto.state == 60){
+				setTarget(targetPos, discardMissRead);
+			} else if (fullAuto.state == 61){
+				openClose = 50;
+			}
+
+			else if (fullAuto.state == 50){
+				emptyPassesCounter++;
+			} else if (fullAuto.state == 51){
+				setTarget(targetPos, initialPos);
+			} else if (fullAuto.state == 52){
+				emptyPassesCounter = 0;
 			}
 		}
 		#endif
@@ -575,7 +731,7 @@ void loop(){
 		Serial.print("   PickAndDrop.state: ");
 		Serial.print(pickAndDrop.state);
 		#endif
-		#if defined(CTRL_BY_CARSTESIAN) || defined(CTRL_AUTO)
+		#if defined(CTRL_BY_CARSTESIAN) || defined(CTRL_AUTO) || defined(CTRL_AUTO_W_CMD)
 		Serial.print("   Speed: ");
 		Serial.print(speed);
 		Serial.print("   currX: ");
@@ -615,13 +771,21 @@ void loop(){
 		} else if (operation.state == 2){
 			Serial.print("   grid state: ");
 			Serial.print(gridSM.state);
+		} else if (operation.state == 3){
+			Serial.print("   automatic state: ");
+			Serial.print(automatic.state);
+		} else if (operation.state == 4){
+			Serial.print(" fullAuto state: ");
+			Serial.print(fullAuto.state);
 		}
+		
 		Serial.print("   command: ");
 		Serial.print(serialCommand.command);
 		Serial.print("   value 1: ");
 		Serial.print(serialCommand.value[0]);
 		#endif
 
+		#ifndef CTRL_AUTO_W_CMD
 		Serial.print("   micros B: ");
 		Serial.print(microsBase);
 		Serial.print("   micros S: ");
@@ -630,7 +794,7 @@ void loop(){
 		Serial.print(microsElbow);
 		Serial.print("   micros G: ");
 		Serial.print(microsGrabber);
-		
+		#endif
 
 		Serial.println();
 	}
@@ -973,6 +1137,24 @@ void doCommand3(char b, float* p, int* step){
 }
 
 /**
+ * Sets the current position to the specified position.
+ * Use carefully!!! This overrides where the robot thinks it is.
+ * Useful for ressetting the robot to a known state.
+ * 
+ * @param currPos pointer to the current position array
+ * @param pos pointer to the new position array
+ *
+ * @return void
+ *
+ * @throws None
+ */
+void setCurrentPosition(float* currPos, float* pos){
+	currPos[0] = pos[0];
+	currPos[1] = pos[1];
+	currPos[2] = pos[2];
+}
+
+/**
  * Sets the target position to the given position.
  *
  * @param targetPos targetPos variable, will be used to move the arm
@@ -994,6 +1176,7 @@ void setTarget(float* targetPos, float* pos, float z_offset){
 }
 
 int colourDetection(uint16_t r, uint16_t g, uint16_t b){
+	if (r< 90 && g < 90 && b < 90) return -1;
 	if(r>g && r> b) return 0;
 	if(g>r && g>b) return 1;
 	if(b>r && b>g) return 2;
@@ -1114,7 +1297,7 @@ void doCommand(){
 		gridPositions[(int)serialCommand.value[0]][2] = currPos[2];
 
 	}else if(serialCommand.command.equals("lookat")){
-		lookAtTarget(gridPositions[(int)serialCommand.value[0]], angBase);
+		
 	}
 	else {
 		Serial.println(" ! ! ! ! ! INVALID COMMAND ! ! ! ! !");
@@ -1123,7 +1306,7 @@ void doCommand(){
 int detectpiece(float distance, float maxTofRange)
 {	
 	if (distance < maxTofRange)return 1;
-	else return -1;
+	else return 0;
 }
 
 void resetPickAndDrop(){
@@ -1146,9 +1329,22 @@ void resetAutomatic(){
 	set_state(automatic, automatic.new_state);
 }
 
-float lookAtTarget(float* pos, float& angBase){
+void resetFullAuto(){
+	closestDetectedPiece[0] = initialPos[0];
+	closestDetectedPiece[1] = initialPos[1];
+	closestDetectedPiece[2] = initialPos[2];
+	closestDetectedRadius = MAX_TOF_RANGE;
 
-	setTarget(targetPos, initialPos);
-	angBase = atan2(pos[1],pos[0]) + PI/2;
-	return angBase;
+	fullAuto.new_state = 0;
+	set_state(fullAuto, fullAuto.new_state);
+}
+
+boolean rotateScan(float scanDirection, float scanAngle, int samples, String direction){
+	if(angBase >= scanDirection + scanAngle/2 && direction == "left") return true;
+	else if(angBase <= scanDirection && direction == "right") return true;
+
+	else if(angBase < (scanDirection - scanAngle/2) && direction == "left") angBase += scanAngle/samples;
+	else if(direction == "left") angBase += scanAngle/samples;
+	else if(direction == "right")angBase -= scanAngle/samples;
+	return false;
 }

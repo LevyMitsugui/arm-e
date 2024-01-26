@@ -1,13 +1,13 @@
 
-float colourSensorPos[3] = {0,-75,87};
+float colourSensorPos[3] = {1,-47,88};
 float initialPos[3] = {30,0,80};
 
 float maxRight[3] = {32,-40,69};
 float maxLeft[3] = {32,40,69};
 
-float contentor1[3] = {32,40,90};///red 
-float contentor2[3] = {30,0,80};////blue 
-float contentor3[3] = {30,0,80};////green
+float contentor1[3] = {22,54,104};///red 
+float contentor2[3] = {60,71,104};////green
+float contentor3[3] = {0,58,104};////blue
 
 float contentores[3][3] = {
     {contentor1[0], contentor1[1], contentor1[2]},
@@ -48,11 +48,11 @@ float pieces[12][3] = {
 float gridPositions[9][3] = {
     {60,   40,   40},
     {60,    0,   40},
-    {60,  -40,   40},
-    {90,  40,   40},
-    {90,   0,   40},
-    {90, -40,   40},
-    {120,  40,   40},
-    {120,   0,   40},
-    {120, -40,   40}
+    {66,  -20,   37},
+    {104,  44,   44},
+    {102,   6,   40},
+    {103, -22,   38},
+    {144,  42,   44},
+    {141,   5,  52},
+    {141, -30,   53}
 };
