@@ -1,8 +1,6 @@
 #include <Arduino.h>
 #include <Servo.h>
 #include <Wire.h>
-#include <vector>
-#include <array>
 #include <VL53L0X.h>
 #include <Adafruit_TCS34725.h>
 #include <SPI.h>
@@ -32,8 +30,8 @@ bool doCube = false;
 #define SERVO3_PIN 11	//ELBOW
 #define SERVO4_PIN 12	//GRABBER
 
-#define TOF_SCL_PIN 17
 #define TOF_SDA_PIN 16
+#define TOF_SCL_PIN 17
 
 #define TCS_SDA_PIN 18
 #define TCS_SCL_PIN 19
@@ -43,7 +41,7 @@ int c_step = 1; // Configurable step
 //serial command variables
 typedef struct{  
   String command = "";
-  float value[4] = {0,0,0};
+  float value[4] = {0,0,0,0};
 }serialCommand_t;
 serialCommand_t serialCommand;
 String serialCommandBuff;
@@ -151,9 +149,7 @@ bool ignoreMissRead = false;
 
 // Automatic Variables
 float closestDetectedPoint1[3];
-float closestDetectedPoint2[3];
 float closestDetectedRadius1 = MAX_TOF_RANGE;
-float closestDetectedRadius2 = MAX_TOF_RANGE;
 float startScanPosition[3] = {10,-30, 80};
 bool reachedScanEnd = false;
 
@@ -309,13 +305,6 @@ void loop(){
 				closestDetectedPiece[1] = -1*cos(angBase)*(distance+  + ONE_MAGIC_NUMBER);// + R_TOF_OFFSET - R_GRABBER_OFFSET);
 				closestDetectedPiece[2] = 38;
 			}
-		} else if (detectpiece(distance, MAX_TOF_RANGE) && automatic.state == 2){
-			if(distance < closestDetectedRadius2){
-				closestDetectedRadius2 = distance;
-				closestDetectedPoint2[0] = sin(angBase)*(distance  + ONE_MAGIC_NUMBER);
-				closestDetectedPoint2[1] = -1*cos(angBase)*(distance  + ONE_MAGIC_NUMBER);
-				closestDetectedPoint2[2] = 40;
-			}
 		}
 
 		#endif
@@ -326,13 +315,7 @@ void loop(){
 		/*if (show_lux)
 			lux = tcs.calculateLux(r, g, b);
 
-			Serial.print("Color Temp: ");
-			Serial.print(colorTemp, DEC);
-			Serial.print(" K - "); */
 		/*if (show_lux)
-			Serial.print("Lux: ");
-			Serial.print(lux, DEC);
-			Serial.print(" - ");
 			Serial.print("R: ");
 			Serial.print(r, DEC);
 			Serial.print(" ");
@@ -343,10 +326,7 @@ void loop(){
 			Serial.print(b, DEC);
 			Serial.print(" ");
 			Serial.print("C: ");
-			Serial.print(c, DEC);
-			Serial.print(" ");
-			Serial.print(" Command: ");
-			Serial.print(serial_commands.command);*/
+			Serial.print(c, DEC);*/
 		#endif
 		
 
@@ -559,7 +539,6 @@ void loop(){
 			} else if(automatic.state == 11){
 				setTarget(targetPos, startScanPosition);
 				closestDetectedRadius1 = MAX_TOF_RANGE;
-				closestDetectedRadius2 = MAX_TOF_RANGE;
 			}
 		} else if(operation.state == 4){
 			if(fullAuto.state == 0){
@@ -931,6 +910,21 @@ bool inverseKinematics(float *point, float& base, float& shoulder, float& elbow)
 	return true;
 }
 
+/**
+ * Moves the current position towards the target position at a specified speed.
+ *
+ * @param currP pointer to the current position array
+ * @param targetP pointer to the target position array
+ * @param speed the speed of the movement
+ * @param cylclePeriod the period of the movement cycle
+ * @param base reference to the base angle
+ * @param shoulder reference to the shoulder angle
+ * @param elbow reference to the elbow angle
+ *
+ * @return true if the current position is within the margin of the target position, false otherwise
+ *
+ * @throws None
+ */
 bool moveToTarget(float* currP, float* targetP, float speed, int cylclePeriod, float& base, float& shoulder, float& elbow){
 	if(currP[0] < targetP[0]+POS_MARGIN && currP[0] > targetP[0]-POS_MARGIN){
 		if(currP[1] < targetP[1]+POS_MARGIN && currP[1] > targetP[1]-POS_MARGIN){
@@ -940,11 +934,8 @@ bool moveToTarget(float* currP, float* targetP, float speed, int cylclePeriod, f
 		}
 	}
 	float sVec[3] = {targetP[0] - currP[0], targetP[1] - currP[1], targetP[2] - currP[2]};
-	//Serial.printf("SVec: %.6f %.6f %.6f", sVec[0], sVec[1], sVec[2]);
 	float sMod = pitagoras(sVec[0], sVec[1], sVec[2]);
-	//Serial.printf("   SMod: %.6f", sMod);
 	float sUnit[3] = {sVec[0]/sMod, sVec[1]/sMod, sVec[2]/sMod};
-	//Serial.printf("   SUnit: %.6f %.6f %.6f", sUnit[0], sUnit[1], sUnit[2]);
 
 	speed = (speed*powf(E, sMod*0.025) > 150) ? 150 : speed*powf(E, sMod*0.025);
 
@@ -1347,8 +1338,6 @@ void resetGridSM(){
 }
 
 void resetAutomatic(){
-	
-	
 	automatic.new_state = 0;
 	set_state(automatic, automatic.new_state);
 }

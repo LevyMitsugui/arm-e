@@ -12,17 +12,9 @@
 #define max4 1950
 
 //links length in millimeters:
-#define CAL_L_0 (float)3
-#define CAL_L_1 (float)16
 #define CAL_L_2 (float)80
 #define CAL_L_3 (float)80
-#define CAL_L_4 (float)80
-#define CAL_L_5 (float)75
 
-#define CAL_L_3I (float)35
-#define CAL_L_3O (float)35
-
-#define CAL_D_5 (float)8
 #define CAL_H_1 (float)60
 
 #define CAL_Hub_Diameter (float)55
