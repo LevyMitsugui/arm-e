@@ -464,7 +464,7 @@ void loop(){
 			if(pickAndDrop.state == 0){
 				setTarget(targetPos, initialPos);
 			} else if(pickAndDrop.state == 1){
-				openClose = 50;
+				openClose = 75;
 			} else if(pickAndDrop.state == 2){
 				setTarget(targetPos, pieces[loosePiecesIterator]);
 				Serial.print("  Going for piece: ");
@@ -484,7 +484,7 @@ void loop(){
 			} else if(pickAndDrop.state == 9){
 				setTarget(targetPos, contentor3);
 			} else if(pickAndDrop.state == 10){
-				openClose = 70;
+				openClose = 75;
 			} else if(pickAndDrop.state == 11){
 				setTarget(targetPos, initialPos);
 			} else if(pickAndDrop.state == 12){
